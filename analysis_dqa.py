@@ -25,10 +25,12 @@ import os
 
 # Paths
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
-DEIDENTIFIED_DIR = os.path.join(ROOT_DIR, "deidentified_data/level2")
+DEIDENTIFIED_DIR = os.path.join(ROOT_DIR, "newdata")
 INPUT_DATA_CLEANED = os.path.join(DEIDENTIFIED_DIR, "study2_cleaned.csv")
 DQA_DATA_DIR = DEIDENTIFIED_DIR
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+# new clinic IDs
+TIBU_DEIDENTIFIED = os.path.join(DEIDENTIFIED_DIR, "TIBU_firstnm_deidentified.csv")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # -----------------------------------------------------------------------------
@@ -122,18 +124,19 @@ def clean_dqa_data():
 
 def load_study_data():
     """Returns the main study dataframe."""
-    if not os.path.exists(INPUT_DATA_CLEANED):
-        print(f"Error: Data not found at {INPUT_DATA_CLEANED}")
-        return None
+
     df = pd.read_csv(INPUT_DATA_CLEANED, low_memory=False)
-    # Handle de-identified column names
-    if "anon_scrn" in df.columns and "scrn" not in df.columns:
+    if "anon_scrn" in df.columns:
         df = df.rename(columns={"anon_scrn": "scrn"})
-    if "anon_patient_id" in df.columns and "PatientID" not in df.columns:
-        df = df.rename(columns={"anon_patient_id": "PatientID"})
-    # Ensure scrn is string type (DQA data loads as str; de-identified IDs may be float)
-    if "scrn" in df.columns:
-        df["scrn"] = df["scrn"].astype(str).replace("nan", np.nan)
+
+    # Replace old clinic_id with new one from TIBU file
+    tibu = pd.read_csv(TIBU_DEIDENTIFIED, dtype=str)[["anon_scrn_tibu", "source_file"]]
+    tibu = tibu.rename(columns={"anon_scrn_tibu": "scrn", "source_file": "clinic_id"})
+    tibu["scrn"] = tibu["scrn"].astype(str)
+    df["scrn"] = df["scrn"].astype(str)
+
+    df = df.drop(columns=["clinic_id"], errors="ignore")
+    df = df.merge(tibu, on="scrn", how="left")
     return df
 
 # -----------------------------------------------------------------------------
@@ -364,7 +367,6 @@ def generate_error_by_clinic(main_df, dqa_df):
     print("\n--- Generating error rates by clinic ---")
 
     merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
-
     # Define outcomes
     bad = ["D", "F", "LTFU", "NC"]
     good = ["C", "TC"]
