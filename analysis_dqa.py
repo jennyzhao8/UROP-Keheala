@@ -118,24 +118,22 @@ def clean_dqa_data():
     df = df.drop_duplicates(subset=["scrn"], keep="last")
     
     # Rename outcome for clarity
-    df = df.rename(columns={"treatmentoutcome": "to_paper"})
-    
+    df = df.rename(columns={
+        "treatmentoutcome": "to_paper",
+        "treatmentoutcomedate": "date_paper"
+    })    
     return df
 
 def load_study_data():
-    """Returns the main study dataframe."""
-
     df = pd.read_csv(INPUT_DATA_CLEANED, low_memory=False)
     if "anon_scrn" in df.columns:
         df = df.rename(columns={"anon_scrn": "scrn"})
 
-    # Replace old clinic_id with new one from TIBU file
     tibu = pd.read_csv(TIBU_DEIDENTIFIED, dtype=str)[["anon_scrn_tibu", "source_file"]]
-    tibu = tibu.rename(columns={"anon_scrn_tibu": "scrn", "source_file": "clinic_id"})
+    tibu = tibu.rename(columns={"anon_scrn_tibu": "scrn", "source_file": "tibu_source_file"})
     tibu["scrn"] = tibu["scrn"].astype(str)
     df["scrn"] = df["scrn"].astype(str)
 
-    df = df.drop(columns=["clinic_id"], errors="ignore")
     df = df.merge(tibu, on="scrn", how="left")
     return df
 
@@ -359,103 +357,129 @@ def generate_error_table(main_df, dqa_df):
 # -----------------------------------------------------------------------------
 # MAIN
 # -----------------------------------------------------------------------------
-# NEW
-def generate_error_by_clinic(main_df, dqa_df):
+
+def generate_patient_characteristics_table(main_df):
     """
-    Computes mismatch, type I, and type II error rates by clinic.
+    Fig 1: Who is in our study?
+    Patient and disease characteristics broken down by urban vs rural.
+    Outputs tblSI_patient_characteristics.tex
     """
-    print("\n--- Generating error rates by clinic ---")
+    print("\n--- Generating Patient Characteristics Table (Fig 1) ---")
 
-    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
-    # Define outcomes
-    bad = ["D", "F", "LTFU", "NC"]
-    good = ["C", "TC"]
+    clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
 
-    merged["uo_tibu"] = np.nan
-    merged.loc[merged["treatmentoutcome"].isin(bad), "uo_tibu"] = 1
-    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
+    df = main_df.copy()
+    df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
 
-    merged["uo_paper"] = np.nan
-    merged.loc[merged["to_paper"].isin(bad), "uo_paper"] = 1
-    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
-
-    df = merged.dropna(subset=["uo_tibu"]).copy()
-
-    # Mismatch
-    df["mismatch"] = (df["uo_tibu"] != df["uo_paper"]).astype(int)
-
-    # Type I: false positive (TIBU success but paper unsuccess)
-    df["type1"] = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
-
-    # Type II: false negative (TIBU unsuccess but paper success)
-    df["type2"] = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
-
-    # remove missing clinic IDs
-    df = df[df["clinic_id"] != 0]
-
-    # NEW Group by clinic
-    clinic_stats = (
-        # calculate error rates separately for each clniic
-        df.groupby("clinic_id") 
-        .agg(
-            n=("scrn", "count"), # num of patients
-            mismatch_rate=("mismatch", "mean"), # share of records with disagreement
-            type1_rate=("type1", "mean"), # share of false pos
-            type2_rate=("type2", "mean"), # share of false neg
-        )
-        .reset_index()
-        # shows clinics with highest error rates first
-        .sort_values("mismatch_rate", ascending=False) 
+    df = df.merge(
+        clinic_summary[["clinic_id", "urban"]],
+        left_on="clinic_id_num",
+        right_on="clinic_id",
+        how="left"
     )
 
-    # filter clinics with enough observations (avoid n=1)
-    clinic_stats_filtered = clinic_stats[clinic_stats["n"] >= 30]
+    # Filter to MITT only (main analysis sample)
+    df = df[df["MITT"] == 1].copy()
 
-    # sort again after filtering
-    clinic_stats_filtered = clinic_stats_filtered.sort_values(
-        "mismatch_rate", ascending=False
+    all_   = df
+    urban  = df[df["urban"] == 1]
+    rural  = df[df["urban"] == 0]
+
+    N_all  = len(all_)
+    N_u    = len(urban)
+    N_r    = len(rural)
+
+    def pct(series):
+        """Mean of a 0/1 series as percentage string."""
+        v = pd.to_numeric(series, errors="coerce")
+        return f"{v.mean()*100:.1f}\\%"
+
+    def mean_val(series):
+        v = pd.to_numeric(series, errors="coerce")
+        return f"{v.mean():.1f}"
+
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{lccc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(
+        rf"\rowcolor{{yellow!15}} Characteristic & All (N={N_all}) & Urban (N={N_u}) & Rural (N={N_r}) \\ \hline \\[-8pt]"
     )
 
-    # save full table
-    out_file = os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv")
-    clinic_stats.to_csv(out_file, index=False)
+    # Patient characteristics
+    latex_lines.append(r"\textit{Patient characteristics} & & & \\")
+    latex_lines.append(
+        rf"\quad \% Male & {pct(all_['male'])} & {pct(urban['male'])} & {pct(rural['male'])} \\"
+    )
+    latex_lines.append(
+        rf"\quad Mean age (years) & {mean_val(all_['age_in_years'])} & {mean_val(urban['age_in_years'])} & {mean_val(rural['age_in_years'])} \\"
+    )
+    latex_lines.append(
+        rf"\quad \% HIV positive & {pct(all_['hiv_positive'])} & {pct(urban['hiv_positive'])} & {pct(rural['hiv_positive'])} \\"
+    )
 
-    # save filtered table
-    filtered_file = os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n30.csv")
-    clinic_stats_filtered.to_csv(filtered_file, index=False)
-    
-    total_clinics = clinic_stats.shape[0]
-    filtered_clinics = clinic_stats_filtered.shape[0]
-    total_patients = clinic_stats["n"].sum()
-    filtered_patients = clinic_stats_filtered["n"].sum()
+    latex_lines.append(r"\\[-4pt]")
 
-    print(f"\nClinics total: {total_clinics}")
-    print(f"Clinics with n >= 30: {filtered_clinics}")
-    print(f"Matched patients total: {total_patients}")
-    print(f"Matched patients in n≥30 clinics: {filtered_patients} ({filtered_patients/total_patients:.1%})")
+    # Disease characteristics
+    latex_lines.append(r"\textit{Disease characteristics} & & & \\")
+    latex_lines.append(
+        rf"\quad \% Extrapulmonary TB & {pct(all_['extrapulmonary'])} & {pct(urban['extrapulmonary'])} & {pct(rural['extrapulmonary'])} \\"
+    )
+    latex_lines.append(
+        rf"\quad \% Bacteriologically confirmed & {pct(all_['bacteriologically_confirmed'])} & {pct(urban['bacteriologically_confirmed'])} & {pct(rural['bacteriologically_confirmed'])} \\"
+    )
+    latex_lines.append(
+        rf"\quad \% Retreatment & {pct(all_['retreatment'])} & {pct(urban['retreatment'])} & {pct(rural['retreatment'])} \\"
+    )
+    latex_lines.append(
+        rf"\quad \% Drug resistant & {pct(all_['drugresistant'])} & {pct(urban['drugresistant'])} & {pct(rural['drugresistant'])} \\"
+    )
 
+    latex_lines.append(r"\\[-4pt]")
+
+    # Outcomes
+    latex_lines.append(r"\textit{Outcomes} & & & \\")
+    latex_lines.append(
+        rf"\quad \% Unsuccessful outcome & {pct(all_['unsuccessful_outcome'])} & {pct(urban['unsuccessful_outcome'])} & {pct(rural['unsuccessful_outcome'])} \\"
+    )
+
+    latex_lines.append(r"\\[-4pt]")
+
+    # Treatment group breakdown
+    latex_lines.append(r"\textit{Treatment group, \%} & & & \\")
+    for grp, label in [
+        ("Control Group",      "Control"),
+        ("Keheala Group",      "Keheala"),
+        ("SBCC Group",         "Platform"),
+        ("SMS Reminder Group", "SMS"),
+    ]:
+        a = f"{(all_['treatment_group']==grp).mean()*100:.1f}\\%"
+        u = f"{(urban['treatment_group']==grp).mean()*100:.1f}\\%"
+        r = f"{(rural['treatment_group']==grp).mean()*100:.1f}\\%"
+        latex_lines.append(rf"\quad {label} & {a} & {u} & {r} \\")
+
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\end{tabular}}")
+
+    out_file = os.path.join(OUTPUT_DIR, "tblSI_patient_characteristics.tex")
+    with open(out_file, "w") as f:
+        f.write("\n".join(latex_lines))
     print(f"Saved {out_file}")
-    print("\nTop 10 clinics with highest error rates (n >= 30):")
-    print(clinic_stats_filtered.head(10))
 
 def generate_outcome_corrections(main_df, dqa_df):
     """
-    Finds the most common outcome discrepancies between TIBU and Paper registry.
+    Fig 2: Most common outcome corrections (TIBU -> Paper).
+    Saves both outcome_corrections.csv and tblSI_outcome_corrections.tex
     """
-    print("\n--- Generating most common outcome corrections ---")
+    print("\n--- Generating Outcome Corrections (Fig 2) ---")
 
     merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
-
     df = merged.copy()
-
-    # replace missing values so they appear in tables
     df["tibu"] = df["treatmentoutcome"].fillna("Blank")
     df["paper"] = df["to_paper"].fillna("Blank")
 
-    # keep only rows where outcomes differ
     corrections = df[df["tibu"] != df["paper"]]
-
-    # count corrections
     correction_counts = (
         corrections.groupby(["tibu", "paper"])
         .size()
@@ -463,36 +487,141 @@ def generate_outcome_corrections(main_df, dqa_df):
         .sort_values("count", ascending=False)
     )
 
-    # save full table
-    out_file = os.path.join(OUTPUT_DIR, "outcome_corrections.csv")
-    correction_counts.to_csv(out_file, index=False)
+    # Save CSV
+    correction_counts.to_csv(os.path.join(OUTPUT_DIR, "outcome_corrections.csv"), index=False)
 
-    print(f"Saved {out_file}")
+    # Save tex (top 10 only)
+    total_corrections = len(corrections)
+    top10 = correction_counts.head(10)
 
-    print("\nTop 10 most common corrections:")
-    print(correction_counts.head(10))
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{llcc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(r"\rowcolor{yellow!15} TIBU Outcome & Paper Outcome & Count & \% of Corrections \\")
+    latex_lines.append(r"\hline \\[-8pt]")
+    for _, row in top10.iterrows():
+        pct = row["count"] / total_corrections * 100
+        latex_lines.append(rf"{row['tibu']} & {row['paper']} & {row['count']} & {pct:.1f}\% \\")
+    latex_lines.append(r"\hline \\[-8pt]")
+    latex_lines.append(rf"Total corrections & & {total_corrections} & 100.0\% \\")
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\end{tabular}}")
+
+    with open(os.path.join(OUTPUT_DIR, "tblSI_outcome_corrections.tex"), "w") as f:
+        f.write("\n".join(latex_lines))
+    print(f"Saved outcome_corrections.csv and tblSI_outcome_corrections.tex")
+
+
+def generate_error_by_clinic(main_df, dqa_df):
+    """
+    Fig 3: Where are errors most severe?
+    Saves error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv,
+    and tblSI_error_by_clinic_char.tex
+    """
+    print("\n--- Generating Error by Clinic (Fig 3) ---")
+
+    clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+
+    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
+    merged["clinic_id_num"] = pd.to_numeric(merged["clinic_id"], errors="coerce")
+    merged = merged.merge(
+        clinic_summary[["clinic_id", "urban", "tibu_patients"]],
+        left_on="clinic_id_num", right_on="clinic_id", how="left"
+    )
+
+    bad  = ["D", "F", "LTFU", "NC"]
+    good = ["C", "TC"]
+    merged["uo_tibu"]  = np.nan
+    merged.loc[merged["treatmentoutcome"].isin(bad),  "uo_tibu"] = 1
+    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
+    merged["uo_paper"] = np.nan
+    merged.loc[merged["to_paper"].isin(bad),  "uo_paper"] = 1
+    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
+
+    df = merged.dropna(subset=["uo_tibu"]).copy()
+    df["mismatch"] = (df["uo_tibu"] != df["uo_paper"]).astype(int)
+    df["type1"]    = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
+    df["type2"]    = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+
+    # --- CSV: per-clinic stats ---
+    clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
+    clinic_stats = (
+        df.groupby("clinic_id_num")
+        .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
+             type1_rate=("type1","mean"), type2_rate=("type2","mean"))
+        .reset_index()
+        .rename(columns={"clinic_id_num": "clinic_id"})
+    )
+    clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
+    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate"]]
+
+    clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
+    filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
+    filtered.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n10.csv"), index=False)
+
+    total_patients = clinic_stats["n_study"].sum()
+    filtered_patients = filtered["n_study"].sum()
+    print(f"Clinics total: {clinic_stats.shape[0]}, with n>=10: {filtered.shape[0]}")
+    print(f"Matched patients: {total_patients}, in n>=10 clinics: {filtered_patients} ({filtered_patients/total_patients:.1%})")
+    print("\nTop 10 clinics by mismatch rate (n>=10):")
+    print(filtered.head(10))
+
+    # --- Tex: by urban/rural and clinic size ---
+    median_size = df["tibu_patients"].median()
+    df["large_clinic"] = (df["tibu_patients"] >= median_size).astype(float)
+
+    def stats(sub):
+        return len(sub), sub["mismatch"].mean()*100, sub["type1"].mean()*100, sub["type2"].mean()*100
+
+    groups = [
+        ("All",          df),
+        ("Urban",        df[df["urban"] == 1]),
+        ("Rural",        df[df["urban"] == 0]),
+        ("Large clinic", df[df["large_clinic"] == 1]),
+        ("Small clinic", df[df["large_clinic"] == 0]),
+    ]
+
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{lcccc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(r"\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\")
+    latex_lines.append(r"\hline \\[-8pt]")
+    for label, sub in groups:
+        n, m, t1, t2 = stats(sub)
+        latex_lines.append(rf"{label} & {n} & {m:.1f}\% & {t1:.1f}\% & {t2:.1f}\% \\")
+        if label == "All":
+            latex_lines.append(r"\hline \\[-8pt]")
+            latex_lines.append(r"\textit{By urban/rural} & & & & \\")
+        if label == "Rural":
+            latex_lines.append(r"\hline \\[-8pt]")
+            latex_lines.append(r"\textit{By clinic size} & & & & \\")
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\end{tabular}}")
+
+    with open(os.path.join(OUTPUT_DIR, "tblSI_error_by_clinic_char.tex"), "w") as f:
+        f.write("\n".join(latex_lines))
+    print(f"Saved error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv, tblSI_error_by_clinic_char.tex")
 
 def generate_error_by_outcome(main_df, dqa_df):
     """
     Computes mismatch rates by TIBU outcome.
+    Saves error_rates_by_outcome.csv
     """
     print("\n--- Generating error rates by outcome ---")
 
-    merged = pd.merge(main_df, dqa_df[["scrn","to_paper"]], on="scrn", how="inner")
+    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
 
     df = merged.copy()
-
     df["tibu"] = df["treatmentoutcome"].fillna("Blank")
     df["paper"] = df["to_paper"].fillna("Blank")
-
     df["mismatch"] = (df["tibu"] != df["paper"]).astype(int)
 
     outcome_stats = (
         df.groupby("tibu")
-        .agg(
-            n=("scrn","count"),
-            mismatch_rate=("mismatch","mean")
-        )
+        .agg(n=("scrn", "count"), mismatch_rate=("mismatch", "mean"))
         .reset_index()
         .sort_values("mismatch_rate", ascending=False)
     )
@@ -504,6 +633,97 @@ def generate_error_by_outcome(main_df, dqa_df):
     print("\nError rates by outcome:")
     print(outcome_stats)
 
+def generate_error_by_patient_characteristics(main_df, dqa_df):
+    """
+    Fig 4: For whom are errors most severe?
+    Error rates by patient and disease characteristics.
+    Outputs tblSI_error_by_patient_char.tex
+    """
+    print("\n--- Generating Error by Patient Characteristics (Fig 4) ---")
+
+    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
+
+    merged["tibu"]  = merged["treatmentoutcome"].fillna("Blank")
+    merged["paper"] = merged["to_paper"].fillna("Blank")
+
+    bad  = ["D", "F", "LTFU", "NC"]
+    good = ["C", "TC"]
+    merged["uo_tibu"]  = np.nan
+    merged.loc[merged["treatmentoutcome"].isin(bad),  "uo_tibu"] = 1
+    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
+    merged["uo_paper"] = np.nan
+    merged.loc[merged["to_paper"].isin(bad),  "uo_paper"] = 1
+    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
+
+    df = merged.dropna(subset=["uo_tibu"]).copy()
+    df["mismatch"] = (df["uo_tibu"] != df["uo_paper"]).astype(int)
+    df["type1"]    = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
+    df["type2"]    = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+
+    df["age_group"] = pd.cut(
+        pd.to_numeric(df["age_in_years"], errors="coerce"),
+        bins=[0, 15, 35, 55, 200],
+        labels=[r"$<$15", "15--34", "35--54", "55+"]
+    )
+
+    def stats(sub):
+        if len(sub) == 0:
+            return "-", "-", "-", "-"
+        return (str(len(sub)),
+                f"{sub['mismatch'].mean()*100:.1f}\\%",
+                f"{sub['type1'].mean()*100:.1f}\\%",
+                f"{sub['type2'].mean()*100:.1f}\\%")
+
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{lcccc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(r"\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\")
+    latex_lines.append(r"\hline \\[-8pt]")
+
+    # Sex
+    latex_lines.append(r"\textit{Sex} & & & & \\")
+    for val, label in [(1, r"\quad Male"), (0, r"\quad Female")]:
+        n, m, t1, t2 = stats(df[df["male"] == val])
+        latex_lines.append(rf"{label} & {n} & {m} & {t1} & {t2} \\")
+
+    latex_lines.append(r"\\[-4pt]")
+
+    # Age
+    latex_lines.append(r"\textit{Age group} & & & & \\")
+    for grp in [r"$<$15", "15--34", "35--54", "55+"]:
+        n, m, t1, t2 = stats(df[df["age_group"] == grp])
+        latex_lines.append(rf"\quad {grp} & {n} & {m} & {t1} & {t2} \\")
+
+    latex_lines.append(r"\\[-4pt]")
+
+    # HIV
+    latex_lines.append(r"\textit{HIV status} & & & & \\")
+    for val, label in [(1, r"\quad HIV positive"), (0, r"\quad HIV negative")]:
+        n, m, t1, t2 = stats(df[df["hiv_positive"] == val])
+        latex_lines.append(rf"{label} & {n} & {m} & {t1} & {t2} \\")
+
+    latex_lines.append(r"\\[-4pt]")
+
+    # Disease characteristics
+    latex_lines.append(r"\textit{Disease characteristics} & & & & \\")
+    for col, label in [
+        ("extrapulmonary",          r"\quad Extrapulmonary TB"),
+        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed"),
+        ("retreatment",             r"\quad Retreatment"),
+    ]:
+        for val, suffix in [(1, "Yes"), (0, "No")]:
+            n, m, t1, t2 = stats(df[df[col] == val])
+            latex_lines.append(rf"{label} ({suffix}) & {n} & {m} & {t1} & {t2} \\")
+
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\end{tabular}}")
+
+    out_file = os.path.join(OUTPUT_DIR, "tblSI_error_by_patient_char.tex")
+    with open(out_file, "w") as f:
+        f.write("\n".join(latex_lines))
+    print(f"Saved {out_file}")
+
 def main():
     print("Starting Consolidated DQA Analysis...")
     
@@ -512,6 +732,9 @@ def main():
     dqa_df_cleaned = clean_dqa_data()
     
     if main_df is None: return
+    if dqa_df_cleaned is None: return
+
+    generate_patient_characteristics_table(main_df)
     
     # 1. Sensitivity Analysis
     stats = calculate_sensitivity_stats(main_df)
@@ -538,21 +761,13 @@ def main():
     )
     
     if dqa_df_cleaned is None: return
-
-    # 2. Crosstab
+    generate_patient_characteristics_table(main_df)
     generate_crosstab_table(main_df, dqa_df_cleaned)
-    
-    # 3. Error Rates
     generate_error_table(main_df, dqa_df_cleaned)
-
-    # NEW 4. Error rates by clinic
     generate_error_by_clinic(main_df, dqa_df_cleaned)
-    
-    # NEW 5. Most common outcome corrections
     generate_outcome_corrections(main_df, dqa_df_cleaned)
-
-    # NEW 6. Check whether errors are higher for certain outcomes
     generate_error_by_outcome(main_df, dqa_df_cleaned)
+    generate_error_by_patient_characteristics(main_df, dqa_df_cleaned)
 
     print("\nAll DQA tables generated successfully.")
     print(main_df["clinic_id"].value_counts().head(10))
