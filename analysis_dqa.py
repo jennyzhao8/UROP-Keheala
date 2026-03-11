@@ -774,36 +774,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-patient-level comparison logic 
---> generate_error_table summarizes by treatment group
---> generate_error_by_clinic summarizes by clinic
-"""
-
-"""
-csv
-grouping by clinic --> do some clinics systematically produce more data errors
-many clinics with n=1-4 --> extreme error rates (0 or 100%)
-"""
-
-"""
-conclusions
-- error rates vary substantially across clinics,
-ranging from roughly 2 to 19% (almost 10x difference in DQ)
-among clinics with 30+ matched records
-- coverage: only 14 clinics are large enough for reliable estimates,
-but they contain 90.9% of patients
-- what is clinic_id=0?
-- interesting examples from table:
-clinic 403 mismatch_rate=19.3, type1_rate=1.75, type2_rate=0.88
-so most mismatches are not purely type 1 or 2,
-suggests other kinds of discrepancies (missing values?)
-- which corrections are the most common?
-TC --> C (76 cases):
-marked "treatment completed" in TIBU, paper recorded "cured"
-probably a classificication differ4ence not true error
-TO --> TC (62 cases):
-TIBU: TO (transfer out), paper: TC
-transfer recorded early in TIBU, final outcome recorded later on paper? 
-"""
