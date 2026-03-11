@@ -1,0 +1,12 @@
+# Python virtual environment
+.venv/
+
+# Mac system files
+.DS_Store
+
+# Generated outputs
+output/
+
+# Python cache
+__pycache__/
+*.pyc
