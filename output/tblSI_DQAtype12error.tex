@@ -1,14 +1,17 @@
 \scriptsize{
-\begin{tabular}{lccc}
-\hline \hline
-\rowcolor{yellow!15} & \multicolumn{2}{c}{Outcome in TIBU} &  \\
-\rowcolor{yellow!15} & Successful & Unsuccessful & Total \\
-\hline \\[-8pt] 
-Control     & 3.4 & 13.6 & 4.5 \\
-SMS     & 5.4 & 2.2 & 4.9 \\
-Platform     & 4.3 & 8.7 & 4.9 \\
-Keheala     & 3.9 & 7.7 & 4.3 \\
+\begin{tabular}{lcccc}
+\hline \hline \\[-8pt]
+\rowcolor{yellow!15} & \cellcolor{red!20} False negative (\%)& \cellcolor{green!20} False positive (\%)& \cellcolor{blue!20} False missing (\%)& Total (\%) \\
 \hline \\[-8pt]
-Total       & 4.2 & 8.1 & 4.6 \\
+Control & \cellcolor{red!20}1.2 & \cellcolor{green!20}0.9 & \cellcolor{blue!20}2.4 & 4.5 \\
+SMS & \cellcolor{red!20}1.3 & \cellcolor{green!20}0.3 & \cellcolor{blue!20}3.3 & 4.9 \\
+Platform & \cellcolor{red!20}0.8 & \cellcolor{green!20}0.8 & \cellcolor{blue!20}3.2 & 4.9 \\
+Keheala & \cellcolor{red!20}1.2 & \cellcolor{green!20}0.6 & \cellcolor{blue!20}2.5 & 4.3 \\
+\hline \\[-8pt]
+Total & \cellcolor{red!20}1.1 & \cellcolor{green!20}0.7 & \cellcolor{blue!20}2.8 & 4.6 \\
 \hline \hline
+\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]
+\cellcolor{red!20} & \multicolumn{4}{l}{\scriptsize{False negative (TIBU: success; paper: fail): 1.1\%}} \\[-4pt]
+\cellcolor{green!20} & \multicolumn{4}{l}{\scriptsize{False positive (TIBU: fail; paper: success): 0.7\%}} \\[-4pt]
+\cellcolor{blue!20} & \multicolumn{4}{l}{\scriptsize{False missing (paper absent): 2.8\%}} \\
 \end{tabular}}

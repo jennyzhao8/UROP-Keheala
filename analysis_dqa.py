@@ -22,6 +22,11 @@ import numpy as np
 import pandas as pd
 from statsmodels.stats.proportion import proportions_ztest
 import os
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import matplotlib.dates as mdates
 
 # Paths
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
@@ -235,32 +240,58 @@ def generate_crosstab_table(main_df, dqa_df):
     merged.loc[merged["to_tibu_clean"] == "", "to_tibu_clean"] = "Blank"
     
     ct = pd.crosstab(
-        merged["to_tibu_clean"], 
+        merged["to_tibu_clean"],
         merged["to_paper_clean"],
         margins=True,
         margins_name="Total"
     )
-    
+
+    # Legend stats
+    total_n = len(merged)
+    good_t = {"C", "TC"}
+    bad_t  = {"D", "F", "LTFU", "NC", "Blank"}
+    good_p = {"C", "TC"}
+    bad_p  = {"D", "F", "LTFU"}
+    fn_rate = len(merged[merged["to_tibu_clean"].isin(good_t) & merged["to_paper_clean"].isin(bad_p)]) / total_n * 100
+    fp_rate = len(merged[merged["to_tibu_clean"].isin(bad_t)  & merged["to_paper_clean"].isin(good_p)]) / total_n * 100
+    fm_rate = len(merged[merged["to_paper_clean"] == "Blank"]) / total_n * 100
+
     # LaTeX Generation
     col_order = ["Blank", "C", "D", "F", "LTFU", "TC", "Total"]
     row_order = ["Blank", "C", "D", "F", "LTFU", "MT4", "N/A", "NC", "TC", "TO", "Total"]
-    
+
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
     latex_lines.append(r"\begin{tabular}{l|cccccc|c}")
     latex_lines.append(r"\hline \hline \\[-8pt]")
     latex_lines.append(r"\rowcolor{yellow!15} Outcome in TIBU & \multicolumn{6}{c}{Treatment Outcome in Paper Registry} & Total\\")
     latex_lines.append(r"\rowcolor{yellow!15} &         Blank &           C   &       D  &        F  &     LTFU  &       TC &    \\ \hline \\[-8pt]")
-    
+
     for row_idx in row_order:
         if row_idx not in ct.index: continue
         if row_idx == "Total":
             latex_lines.append(r"\hline \\[-8pt]")
         row_data = ct.loc[row_idx]
-        cells = [f"{row_data.get(col, 0):,}" for col in col_order]
+        cells = []
+        for col in col_order:
+            val = f"{row_data.get(col, 0):,}"
+            if row_idx == "Total" or col == "Total":
+                cells.append(val)
+            elif col == "Blank":
+                cells.append(rf"\cellcolor{{blue!20}}{val}")
+            elif row_idx in good_t and col in bad_p:
+                cells.append(rf"\cellcolor{{red!20}}{val}")
+            elif row_idx in bad_t and col in good_p:
+                cells.append(rf"\cellcolor{{green!20}}{val}")
+            else:
+                cells.append(val)
         latex_lines.append(f"{row_idx} & " + " & ".join(cells) + r" \\")
 
     latex_lines.append(r"\hline \hline")
+    latex_lines.append(r"\multicolumn{8}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{red!20}} & \multicolumn{{7}}{{l}}{{\scriptsize{{False negative (TIBU: success; paper: fail): {fn_rate:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{green!20}} & \multicolumn{{7}}{{l}}{{\scriptsize{{False positive (TIBU: fail; paper: success): {fp_rate:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{blue!20}} & \multicolumn{{7}}{{l}}{{\scriptsize{{False missing (paper absent): {fm_rate:.1f}\%}}}} \\")
     latex_lines.append(r"\end{tabular}}")
     
     out_file = os.path.join(OUTPUT_DIR, "tblSI_DQAcrosstab.tex")
@@ -311,44 +342,52 @@ def generate_error_table(main_df, dqa_df):
     }
     df_final["group_label"] = df_final["treatment_group"].map(group_map)
     groups = ["Control", "SMS", "Platform", "Keheala"]
-    
+
+    def error_rates(sub):
+        if len(sub) == 0: return 0, 0, 0, 0
+        n = len(sub)
+        fn = ((sub["uo_tibu"] == 0) & (sub["uo_paper"] == 1)).sum()
+        fp = ((sub["uo_tibu"] == 1) & (sub["uo_paper"] == 0)).sum()
+        fm = sub["uo_paper"].isna().sum()
+        tot = sub["mismatch"].sum()
+        return fn/n*100, fp/n*100, fm/n*100, tot/n*100
+
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{lccc}")
-    latex_lines.append(r"\hline \hline")
-    latex_lines.append(r"\rowcolor{yellow!15} & \multicolumn{2}{c}{Outcome in TIBU} &  \\")
-    latex_lines.append(r"\rowcolor{yellow!15} & Successful & Unsuccessful & Total \\")
-    latex_lines.append(r"\hline \\[-8pt] ")
-    
+    latex_lines.append(r"\begin{tabular}{lcccc}")
+    latex_lines.append(r"\hline \hline \\[-8pt]")
+    latex_lines.append(
+        r"\rowcolor{yellow!15} "
+        r"& \cellcolor{red!20} False negative (\%)"
+        r"& \cellcolor{green!20} False positive (\%)"
+        r"& \cellcolor{blue!20} False missing (\%)"
+        r"& Total (\%) \\"
+    )
+    latex_lines.append(r"\hline \\[-8pt]")
+
     for g in groups:
         sub = df_final[df_final["group_label"] == g]
         if sub.empty: continue
-        
-        # Successful (TIBU=0)
-        sub_succ = sub[sub["uo_tibu"] == 0]
-        rate_succ = sub_succ["mismatch"].mean() * 100 if len(sub_succ)>0 else 0
-        
-        # Unsuccessful (TIBU=1)
-        sub_unsucc = sub[sub["uo_tibu"] == 1]
-        rate_unsucc = sub_unsucc["mismatch"].mean() * 100 if len(sub_unsucc)>0 else 0
-        
-        # Total
-        rate_tot = sub["mismatch"].mean() * 100
-        
-        latex_lines.append(f"{g}     & {rate_succ:.1f} & {rate_unsucc:.1f} & {rate_tot:.1f} \\\\")
-        
+        fn, fp, fm, tot = error_rates(sub)
+        latex_lines.append(
+            rf"{g} & \cellcolor{{red!20}}{fn:.1f} & \cellcolor{{green!20}}{fp:.1f} & \cellcolor{{blue!20}}{fm:.1f} & {tot:.1f} \\"
+        )
+
     latex_lines.append(r"\hline \\[-8pt]")
-    
+
     # Total Row
     sub_all = df_final[df_final["treatment_group"].isin(group_map.keys())]
-    rate_succ_all = sub_all[sub_all["uo_tibu"]==0]["mismatch"].mean() * 100
-    rate_unsucc_all = sub_all[sub_all["uo_tibu"]==1]["mismatch"].mean() * 100
-    rate_tot_all = sub_all["mismatch"].mean() * 100
-    
-    latex_lines.append(f"Total       & {rate_succ_all:.1f} & {rate_unsucc_all:.1f} & {rate_tot_all:.1f} \\\\")
-    latex_lines.append(r"\hline \hline") 
+    fn_all, fp_all, fm_all, tot_all = error_rates(sub_all)
+    latex_lines.append(
+        rf"Total & \cellcolor{{red!20}}{fn_all:.1f} & \cellcolor{{green!20}}{fp_all:.1f} & \cellcolor{{blue!20}}{fm_all:.1f} & {tot_all:.1f} \\"
+    )
+    latex_lines.append(r"\hline \hline")
+    latex_lines.append(r"\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{red!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False negative (TIBU: success; paper: fail): {fn_all:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{green!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False positive (TIBU: fail; paper: success): {fp_all:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{blue!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False missing (paper absent): {fm_all:.1f}\%}}}} \\")
     latex_lines.append(r"\end{tabular}}")
-    
+
     out_file = os.path.join(OUTPUT_DIR, "tblSI_DQAtype12error.tex")
     with open(out_file, "w") as f:
         f.write("\n".join(latex_lines))
@@ -358,42 +397,52 @@ def generate_error_table(main_df, dqa_df):
 # MAIN
 # -----------------------------------------------------------------------------
 
-def generate_patient_characteristics_table(main_df):
+def generate_patient_characteristics_table(main_df, dqa_df):
     """
-    Fig 1: Who is in our study?
-    Patient and disease characteristics broken down by urban vs rural.
+    Table 1: Who is in our study?
+    Columns: All TIBU during study period | Study clinics (TIBU) | Study clinics (paper records)
     Outputs tblSI_patient_characteristics.tex
     """
-    print("\n--- Generating Patient Characteristics Table (Fig 1) ---")
+    print("\n--- Generating Patient Characteristics Table (Table 1) ---")
 
-    clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
+    # --- Column 1: All TIBU during study period ---
+    tibu_full = pd.read_csv(TIBU_DEIDENTIFIED)
 
-    df = main_df.copy()
-    df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
-    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+    tibu_full["male_tibu"] = tibu_full["sexmf"].isin(["M", "Male"]).astype(float)
 
-    df = df.merge(
-        clinic_summary[["clinic_id", "urban"]],
-        left_on="clinic_id_num",
-        right_on="clinic_id",
-        how="left"
-    )
+    def parse_age_years(val):
+        if pd.isna(val): return np.nan
+        val = str(val).strip()
+        if val.endswith("Y"):
+            try: return float(val[:-1])
+            except: return np.nan
+        return np.nan
 
-    # Filter to MITT only (main analysis sample)
-    df = df[df["MITT"] == 1].copy()
+    tibu_full["age_years"] = tibu_full["ageonregistration"].apply(parse_age_years)
+    tibu_full["hiv_pos_tibu"] = tibu_full["hivstatus"].eq("Pos").astype(float)
+    tibu_full["extrapulmonary_tibu"] = tibu_full["typeoftbpep"].eq("EP").astype(float)
+    tibu_full["retreatment_tibu"] = tibu_full["typeofpatient"].isin(["R", "TLF"]).astype(float)
+    tibu_full["drugresistant_tibu"] = tibu_full["resistancepattern"].notna().astype(float)
+    bad_outcomes = ["D", "F", "LTFU"]
+    tibu_full["unsuccessful_tibu"] = tibu_full["treatmentoutcome"].isin(bad_outcomes).astype(float)
 
-    all_   = df
-    urban  = df[df["urban"] == 1]
-    rural  = df[df["urban"] == 0]
+    # --- Column 2: Study clinics, TIBU (MITT sample) ---
+    df_study = main_df[main_df["MITT"] == 1].copy()
 
-    N_all  = len(all_)
-    N_u    = len(urban)
-    N_r    = len(rural)
+    # --- Column 3: Study clinics, paper records (DQA-matched patients' TIBU characteristics) ---
+    df_paper = pd.merge(main_df, dqa_df[["scrn"]], on="scrn", how="inner")
+
+    N_tibu  = len(tibu_full)
+    N_study = len(df_study)
+    N_paper = len(df_paper)
+
+    def pct_tibu(series):
+        v = pd.to_numeric(series, errors="coerce")
+        return f"{v.mean()*100:.1f}"
 
     def pct(series):
-        """Mean of a 0/1 series as percentage string."""
         v = pd.to_numeric(series, errors="coerce")
-        return f"{v.mean()*100:.1f}\\%"
+        return f"{v.mean()*100:.1f}"
 
     def mean_val(series):
         v = pd.to_numeric(series, errors="coerce")
@@ -404,19 +453,22 @@ def generate_patient_characteristics_table(main_df):
     latex_lines.append(r"\begin{tabular}{lccc}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
-        rf"\rowcolor{{yellow!15}} Characteristic & All (N={N_all}) & Urban (N={N_u}) & Rural (N={N_r}) \\ \hline \\[-8pt]"
+        rf"\rowcolor{{yellow!15}} Characteristic "
+        rf"& \shortstack{{All of TIBU \\ (N={N_tibu:,})}} "
+        rf"& \shortstack{{Study clinics, TIBU \\ (N={N_study:,})}} "
+        rf"& \shortstack{{Study clinics, paper \\ (N={N_paper:,})}} \\ \hline \\[-8pt]"
     )
 
     # Patient characteristics
     latex_lines.append(r"\textit{Patient characteristics} & & & \\")
     latex_lines.append(
-        rf"\quad \% Male & {pct(all_['male'])} & {pct(urban['male'])} & {pct(rural['male'])} \\"
+        rf"\quad Male (\%) & {pct_tibu(tibu_full['male_tibu'])} & {pct(df_study['male'])} & {pct(df_paper['male'])} \\"
     )
     latex_lines.append(
-        rf"\quad Mean age (years) & {mean_val(all_['age_in_years'])} & {mean_val(urban['age_in_years'])} & {mean_val(rural['age_in_years'])} \\"
+        rf"\quad Mean age (years) & {mean_val(tibu_full['age_years'])} & {mean_val(df_study['age_in_years'])} & {mean_val(df_paper['age_in_years'])} \\"
     )
     latex_lines.append(
-        rf"\quad \% HIV positive & {pct(all_['hiv_positive'])} & {pct(urban['hiv_positive'])} & {pct(rural['hiv_positive'])} \\"
+        rf"\quad HIV positive (\%) & {pct_tibu(tibu_full['hiv_pos_tibu'])} & {pct(df_study['hiv_positive'])} & {pct(df_paper['hiv_positive'])} \\"
     )
 
     latex_lines.append(r"\\[-4pt]")
@@ -424,16 +476,16 @@ def generate_patient_characteristics_table(main_df):
     # Disease characteristics
     latex_lines.append(r"\textit{Disease characteristics} & & & \\")
     latex_lines.append(
-        rf"\quad \% Extrapulmonary TB & {pct(all_['extrapulmonary'])} & {pct(urban['extrapulmonary'])} & {pct(rural['extrapulmonary'])} \\"
+        rf"\quad Extrapulmonary TB (\%) & {pct_tibu(tibu_full['extrapulmonary_tibu'])} & {pct(df_study['extrapulmonary'])} & {pct(df_paper['extrapulmonary'])} \\"
     )
     latex_lines.append(
-        rf"\quad \% Bacteriologically confirmed & {pct(all_['bacteriologically_confirmed'])} & {pct(urban['bacteriologically_confirmed'])} & {pct(rural['bacteriologically_confirmed'])} \\"
+        rf"\quad Bacteriologically confirmed (\%) & -- & {pct(df_study['bacteriologically_confirmed'])} & {pct(df_paper['bacteriologically_confirmed'])} \\"
     )
     latex_lines.append(
-        rf"\quad \% Retreatment & {pct(all_['retreatment'])} & {pct(urban['retreatment'])} & {pct(rural['retreatment'])} \\"
+        rf"\quad Retreatment (\%) & {pct_tibu(tibu_full['retreatment_tibu'])} & {pct(df_study['retreatment'])} & {pct(df_paper['retreatment'])} \\"
     )
     latex_lines.append(
-        rf"\quad \% Drug resistant & {pct(all_['drugresistant'])} & {pct(urban['drugresistant'])} & {pct(rural['drugresistant'])} \\"
+        rf"\quad Drug resistant (\%) & {pct_tibu(tibu_full['drugresistant_tibu'])} & {pct(df_study['drugresistant'])} & {pct(df_paper['drugresistant'])} \\"
     )
 
     latex_lines.append(r"\\[-4pt]")
@@ -441,23 +493,22 @@ def generate_patient_characteristics_table(main_df):
     # Outcomes
     latex_lines.append(r"\textit{Outcomes} & & & \\")
     latex_lines.append(
-        rf"\quad \% Unsuccessful outcome & {pct(all_['unsuccessful_outcome'])} & {pct(urban['unsuccessful_outcome'])} & {pct(rural['unsuccessful_outcome'])} \\"
+        rf"\quad Unsuccessful outcome (\%) & {pct_tibu(tibu_full['unsuccessful_tibu'])} & {pct(df_study['unsuccessful_outcome'])} & {pct(df_paper['unsuccessful_outcome'])} \\"
     )
 
     latex_lines.append(r"\\[-4pt]")
 
-    # Treatment group breakdown
-    latex_lines.append(r"\textit{Treatment group, \%} & & & \\")
+    # Treatment group breakdown (not applicable for all TIBU)
+    latex_lines.append(r"\textit{Treatment group (\%)} & & & \\")
     for grp, label in [
         ("Control Group",      "Control"),
         ("Keheala Group",      "Keheala"),
         ("SBCC Group",         "Platform"),
         ("SMS Reminder Group", "SMS"),
     ]:
-        a = f"{(all_['treatment_group']==grp).mean()*100:.1f}\\%"
-        u = f"{(urban['treatment_group']==grp).mean()*100:.1f}\\%"
-        r = f"{(rural['treatment_group']==grp).mean()*100:.1f}\\%"
-        latex_lines.append(rf"\quad {label} & {a} & {u} & {r} \\")
+        s = f"{(df_study['treatment_group']==grp).mean()*100:.1f}"
+        p = f"{(df_paper['treatment_group']==grp).mean()*100:.1f}"
+        latex_lines.append(rf"\quad {label} & -- & {s} & {p} \\")
 
     latex_lines.append(r"\hline\hline")
     latex_lines.append(r"\end{tabular}}")
@@ -541,21 +592,23 @@ def generate_error_by_clinic(main_df, dqa_df):
     merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
 
     df = merged.dropna(subset=["uo_tibu"]).copy()
-    df["mismatch"] = (df["uo_tibu"] != df["uo_paper"]).astype(int)
-    df["type1"]    = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
-    df["type2"]    = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+    df["mismatch"]    = (df["uo_tibu"] != df["uo_paper"]).astype(int)
+    df["false_neg"]   = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
+    df["false_pos"]   = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+    df["false_miss"]  = df["uo_paper"].isna().astype(int)
 
     # --- CSV: per-clinic stats ---
     clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
     clinic_stats = (
         df.groupby("clinic_id_num")
         .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
-             type1_rate=("type1","mean"), type2_rate=("type2","mean"))
+             false_neg_rate=("false_neg","mean"), false_pos_rate=("false_pos","mean"),
+             false_miss_rate=("false_miss","mean"))
         .reset_index()
         .rename(columns={"clinic_id_num": "clinic_id"})
     )
     clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
-    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate"]]
+    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","false_neg_rate","false_pos_rate","false_miss_rate"]]
 
     clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
     filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
@@ -573,7 +626,10 @@ def generate_error_by_clinic(main_df, dqa_df):
     df["large_clinic"] = (df["tibu_patients"] >= median_size).astype(float)
 
     def stats(sub):
-        return len(sub), sub["mismatch"].mean()*100, sub["type1"].mean()*100, sub["type2"].mean()*100
+        return (len(sub),
+                sub["false_neg"].mean()*100,
+                sub["false_pos"].mean()*100,
+                sub["false_miss"].mean()*100)
 
     groups = [
         ("All",          df),
@@ -583,15 +639,25 @@ def generate_error_by_clinic(main_df, dqa_df):
         ("Small clinic", df[df["large_clinic"] == 0]),
     ]
 
+    # Legend totals from full df
+    fn_tot, fp_tot, fm_tot = df["false_neg"].mean()*100, df["false_pos"].mean()*100, df["false_miss"].mean()*100
+
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
     latex_lines.append(r"\begin{tabular}{lcccc}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
-    latex_lines.append(r"\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\")
+    latex_lines.append(
+        r"\rowcolor{yellow!15} & N"
+        r"& \cellcolor{red!20} False negative (\%)"
+        r"& \cellcolor{green!20} False positive (\%)"
+        r"& \cellcolor{blue!20} False missing (\%) \\"
+    )
     latex_lines.append(r"\hline \\[-8pt]")
     for label, sub in groups:
-        n, m, t1, t2 = stats(sub)
-        latex_lines.append(rf"{label} & {n} & {m:.1f}\% & {t1:.1f}\% & {t2:.1f}\% \\")
+        n, fn, fp, fm = stats(sub)
+        latex_lines.append(
+            rf"{label} & {n} & \cellcolor{{red!20}}{fn:.1f} & \cellcolor{{green!20}}{fp:.1f} & \cellcolor{{blue!20}}{fm:.1f} \\"
+        )
         if label == "All":
             latex_lines.append(r"\hline \\[-8pt]")
             latex_lines.append(r"\textit{By urban/rural} & & & & \\")
@@ -599,6 +665,10 @@ def generate_error_by_clinic(main_df, dqa_df):
             latex_lines.append(r"\hline \\[-8pt]")
             latex_lines.append(r"\textit{By clinic size} & & & & \\")
     latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{red!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False negative (TIBU: success; paper: fail): {fn_tot:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{green!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False positive (TIBU: fail; paper: success): {fp_tot:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{blue!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False missing (paper absent): {fm_tot:.1f}\%}}}} \\")
     latex_lines.append(r"\end{tabular}}")
 
     with open(os.path.join(OUTPUT_DIR, "tblSI_error_by_clinic_char.tex"), "w") as f:
@@ -656,9 +726,10 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
     merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
 
     df = merged.dropna(subset=["uo_tibu"]).copy()
-    df["mismatch"] = (df["uo_tibu"] != df["uo_paper"]).astype(int)
-    df["type1"]    = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
-    df["type2"]    = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+    df["mismatch"]   = (df["uo_tibu"] != df["uo_paper"]).astype(int)
+    df["false_neg"]  = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
+    df["false_pos"]  = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+    df["false_miss"] = df["uo_paper"].isna().astype(int)
 
     df["age_group"] = pd.cut(
         pd.to_numeric(df["age_in_years"], errors="coerce"),
@@ -670,59 +741,213 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
         if len(sub) == 0:
             return "-", "-", "-", "-"
         return (str(len(sub)),
-                f"{sub['mismatch'].mean()*100:.1f}\\%",
-                f"{sub['type1'].mean()*100:.1f}\\%",
-                f"{sub['type2'].mean()*100:.1f}\\%")
+                f"{sub['false_neg'].mean()*100:.1f}",
+                f"{sub['false_pos'].mean()*100:.1f}",
+                f"{sub['false_miss'].mean()*100:.1f}")
+
+    # Legend totals
+    fn_tot = df["false_neg"].mean()*100
+    fp_tot = df["false_pos"].mean()*100
+    fm_tot = df["false_miss"].mean()*100
 
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
     latex_lines.append(r"\begin{tabular}{lcccc}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
-    latex_lines.append(r"\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\")
+    latex_lines.append(
+        r"\rowcolor{yellow!15} & N"
+        r"& \cellcolor{red!20} False negative (\%)"
+        r"& \cellcolor{green!20} False positive (\%)"
+        r"& \cellcolor{blue!20} False missing (\%) \\"
+    )
     latex_lines.append(r"\hline \\[-8pt]")
 
     # Sex
     latex_lines.append(r"\textit{Sex} & & & & \\")
     for val, label in [(1, r"\quad Male"), (0, r"\quad Female")]:
-        n, m, t1, t2 = stats(df[df["male"] == val])
-        latex_lines.append(rf"{label} & {n} & {m} & {t1} & {t2} \\")
+        n, fn, fp, fm = stats(df[df["male"] == val])
+        latex_lines.append(
+            rf"{label} & {n} & \cellcolor{{red!20}}{fn} & \cellcolor{{green!20}}{fp} & \cellcolor{{blue!20}}{fm} \\"
+        )
 
     latex_lines.append(r"\\[-4pt]")
 
     # Age
     latex_lines.append(r"\textit{Age group} & & & & \\")
     for grp in [r"$<$15", "15--34", "35--54", "55+"]:
-        n, m, t1, t2 = stats(df[df["age_group"] == grp])
-        latex_lines.append(rf"\quad {grp} & {n} & {m} & {t1} & {t2} \\")
+        n, fn, fp, fm = stats(df[df["age_group"] == grp])
+        latex_lines.append(
+            rf"\quad {grp} & {n} & \cellcolor{{red!20}}{fn} & \cellcolor{{green!20}}{fp} & \cellcolor{{blue!20}}{fm} \\"
+        )
 
     latex_lines.append(r"\\[-4pt]")
 
     # HIV
     latex_lines.append(r"\textit{HIV status} & & & & \\")
     for val, label in [(1, r"\quad HIV positive"), (0, r"\quad HIV negative")]:
-        n, m, t1, t2 = stats(df[df["hiv_positive"] == val])
-        latex_lines.append(rf"{label} & {n} & {m} & {t1} & {t2} \\")
+        n, fn, fp, fm = stats(df[df["hiv_positive"] == val])
+        latex_lines.append(
+            rf"{label} & {n} & \cellcolor{{red!20}}{fn} & \cellcolor{{green!20}}{fp} & \cellcolor{{blue!20}}{fm} \\"
+        )
 
     latex_lines.append(r"\\[-4pt]")
 
     # Disease characteristics
     latex_lines.append(r"\textit{Disease characteristics} & & & & \\")
     for col, label in [
-        ("extrapulmonary",          r"\quad Extrapulmonary TB"),
+        ("extrapulmonary",              r"\quad Extrapulmonary TB"),
         ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed"),
-        ("retreatment",             r"\quad Retreatment"),
+        ("retreatment",                 r"\quad Retreatment"),
     ]:
         for val, suffix in [(1, "Yes"), (0, "No")]:
-            n, m, t1, t2 = stats(df[df[col] == val])
-            latex_lines.append(rf"{label} ({suffix}) & {n} & {m} & {t1} & {t2} \\")
+            n, fn, fp, fm = stats(df[df[col] == val])
+            latex_lines.append(
+                rf"{label} ({suffix}) & {n} & \cellcolor{{red!20}}{fn} & \cellcolor{{green!20}}{fp} & \cellcolor{{blue!20}}{fm} \\"
+            )
 
     latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{red!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False negative (TIBU: success; paper: fail): {fn_tot:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{green!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False positive (TIBU: fail; paper: success): {fp_tot:.1f}\%}}}} \\[-4pt]")
+    latex_lines.append(rf"\cellcolor{{blue!20}} & \multicolumn{{4}}{{l}}{{\scriptsize{{False missing (paper absent): {fm_tot:.1f}\%}}}} \\")
     latex_lines.append(r"\end{tabular}}")
 
     out_file = os.path.join(OUTPUT_DIR, "tblSI_error_by_patient_char.tex")
     with open(out_file, "w") as f:
         f.write("\n".join(latex_lines))
     print(f"Saved {out_file}")
+
+def _build_error_df(main_df, dqa_df):
+    """Shared helper: merge, classify errors, parse dates."""
+    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper", "date_paper"]], on="scrn", how="inner")
+
+    bad  = ["D", "F", "LTFU", "NC"]
+    good = ["C", "TC"]
+    merged["uo_tibu"] = np.nan
+    merged.loc[merged["treatmentoutcome"].isin(bad),  "uo_tibu"] = 1
+    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
+    merged["uo_paper"] = np.nan
+    merged.loc[merged["to_paper"].isin(bad),  "uo_paper"] = 1
+    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
+
+    df = merged.dropna(subset=["uo_tibu"]).copy()
+    df["false_neg"]  = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)
+    df["false_pos"]  = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)
+    df["false_miss"] = df["uo_paper"].isna().astype(int)
+
+    # Parse dates; drop 1900 sentinel values
+    df["tibu_date"]  = pd.to_datetime(df["treatmentoutcomedate_formatted"], errors="coerce")
+    df["paper_date"] = pd.to_datetime(df["date_paper"], dayfirst=True, errors="coerce")
+    df.loc[df["tibu_date"].dt.year < 2010,  "tibu_date"]  = pd.NaT
+    df.loc[df["paper_date"].dt.year < 2010, "paper_date"] = pd.NaT
+    df["lag_days"] = (df["paper_date"] - df["tibu_date"]).dt.days
+    return df
+
+
+def generate_error_over_time_figure(main_df, dqa_df):
+    """
+    Line chart of false-negative, false-positive, and false-missing rates
+    by quarter of treatment completion date.
+    Saves fig_error_over_time.pdf
+    """
+    print("\n--- Generating error-over-time figure ---")
+    df = _build_error_df(main_df, dqa_df)
+
+    df_dated = df.dropna(subset=["tibu_date"]).copy()
+    df_dated["quarter"] = df_dated["tibu_date"].dt.to_period("Q")
+
+    by_q = (
+        df_dated.groupby("quarter")
+        .agg(fn=("false_neg", "mean"), fp=("false_pos", "mean"),
+             fm=("false_miss", "mean"), n=("scrn", "count"))
+        .reset_index()
+    )
+    by_q = by_q[by_q["n"] >= 10].copy()
+    by_q["date"] = by_q["quarter"].dt.to_timestamp()
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(by_q["date"], by_q["fn"] * 100, color="red",   marker="o", linewidth=1.5, label="False negative")
+    ax.plot(by_q["date"], by_q["fp"] * 100, color="green", marker="s", linewidth=1.5, label="False positive")
+    ax.plot(by_q["date"], by_q["fm"] * 100, color="blue",  marker="^", linewidth=1.5, label="False missing")
+
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
+    ax.set_xlabel("Treatment completion date (quarter)")
+    ax.set_ylabel("Error rate (%)")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
+    ax.legend(framealpha=0.9, handlelength=0.4, handletextpad=0.4,
+              labelspacing=1.0, borderpad=0.7)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    fig.tight_layout()
+
+    out_file = os.path.join(OUTPUT_DIR, "fig_error_over_time.pdf")
+    fig.savefig(out_file, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_file}")
+
+
+def generate_correction_lag_table(main_df, dqa_df):
+    """
+    Table: days between TIBU outcome date and paper outcome date,
+    broken down by error type.
+    Saves tblSI_correction_lag.tex
+    """
+    print("\n--- Generating correction lag table ---")
+    df = _build_error_df(main_df, dqa_df)
+
+    def lag_stats(mask):
+        sub = df.loc[mask & df["lag_days"].notna(), "lag_days"]
+        if len(sub) == 0:
+            return "--", "--", "--", "--", "--"
+        return (
+            f"{len(sub):,}",
+            f"{sub.mean():.0f}",
+            f"{sub.median():.0f}",
+            f"{sub.quantile(0.25):.0f}",
+            f"{sub.quantile(0.75):.0f}",
+        )
+
+    rows = [
+        (df["false_neg"] == 1, "False negative", "red!20"),
+        (df["false_pos"] == 1, "False positive", "green!20"),
+    ]
+
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{lccccc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(
+        r"\rowcolor{yellow!15} Error type & N"
+        r"& Mean (days) & Median (days) & Q1 (days) & Q3 (days) \\"
+    )
+    latex_lines.append(r"\hline \\[-8pt]")
+
+    for mask, label, color in rows:
+        n, mean, med, q1, q3 = lag_stats(mask)
+        latex_lines.append(
+            rf"\cellcolor{{{color}}}{label} & {n} & {mean} & {med} & {q1} & {q3} \\"
+        )
+
+    # False missing: no paper date, so lag is undefined
+    fm_n = int((df["false_miss"] == 1).sum())
+    latex_lines.append(
+        rf"\cellcolor{{blue!20}}False missing & {fm_n:,}"
+        r" & \multicolumn{4}{l}{No paper record --- lag undefined} \\"
+    )
+
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(
+        r"\multicolumn{6}{l}{\scriptsize{\textit{Note: lag = paper outcome date $-$ TIBU outcome date.}}} \\"
+    )
+    latex_lines.append(r"\multicolumn{6}{l}{\scriptsize{\textit{Negative lag indicates paper was recorded before TIBU.}}} \\")
+    latex_lines.append(r"\end{tabular}}")
+
+    out_file = os.path.join(OUTPUT_DIR, "tblSI_correction_lag.tex")
+    with open(out_file, "w") as f:
+        f.write("\n".join(latex_lines))
+    print(f"Saved {out_file}")
+
 
 def main():
     print("Starting Consolidated DQA Analysis...")
@@ -734,8 +959,8 @@ def main():
     if main_df is None: return
     if dqa_df_cleaned is None: return
 
-    generate_patient_characteristics_table(main_df)
-    
+    generate_patient_characteristics_table(main_df, dqa_df_cleaned)
+
     # 1. Sensitivity Analysis
     stats = calculate_sensitivity_stats(main_df)
     stat_c = stats["Control Group"]
@@ -761,13 +986,15 @@ def main():
     )
     
     if dqa_df_cleaned is None: return
-    generate_patient_characteristics_table(main_df)
+    generate_patient_characteristics_table(main_df, dqa_df_cleaned)
     generate_crosstab_table(main_df, dqa_df_cleaned)
     generate_error_table(main_df, dqa_df_cleaned)
     generate_error_by_clinic(main_df, dqa_df_cleaned)
     generate_outcome_corrections(main_df, dqa_df_cleaned)
     generate_error_by_outcome(main_df, dqa_df_cleaned)
     generate_error_by_patient_characteristics(main_df, dqa_df_cleaned)
+    generate_error_over_time_figure(main_df, dqa_df_cleaned)
+    generate_correction_lag_table(main_df, dqa_df_cleaned)
 
     print("\nAll DQA tables generated successfully.")
     print(main_df["clinic_id"].value_counts().head(10))

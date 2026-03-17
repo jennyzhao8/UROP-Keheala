@@ -1,16 +1,20 @@
 \scriptsize{
 \begin{tabular}{lcccc}
 \hline\hline \\[-8pt]
-\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\
+\rowcolor{yellow!15} & N& \cellcolor{red!20} False negative (\%)& \cellcolor{green!20} False positive (\%)& \cellcolor{blue!20} False missing (\%) \\
 \hline \\[-8pt]
-All & 3111 & 6.9\% & 1.0\% & 2.8\% \\
+All & 3111 & \cellcolor{red!20}1.0 & \cellcolor{green!20}2.8 & \cellcolor{blue!20}3.1 \\
 \hline \\[-8pt]
 \textit{By urban/rural} & & & & \\
-Urban & 985 & 5.5\% & 1.1\% & 2.2\% \\
-Rural & 2122 & 7.6\% & 1.0\% & 3.1\% \\
+Urban & 985 & \cellcolor{red!20}1.1 & \cellcolor{green!20}2.2 & \cellcolor{blue!20}2.1 \\
+Rural & 2122 & \cellcolor{red!20}1.0 & \cellcolor{green!20}3.1 & \cellcolor{blue!20}3.5 \\
 \hline \\[-8pt]
 \textit{By clinic size} & & & & \\
-Large clinic & 2438 & 7.1\% & 1.2\% & 2.4\% \\
-Small clinic & 673 & 6.5\% & 0.3\% & 4.5\% \\
+Large clinic & 2438 & \cellcolor{red!20}1.2 & \cellcolor{green!20}2.4 & \cellcolor{blue!20}3.4 \\
+Small clinic & 673 & \cellcolor{red!20}0.3 & \cellcolor{green!20}4.5 & \cellcolor{blue!20}1.8 \\
 \hline\hline
+\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]
+\cellcolor{red!20} & \multicolumn{4}{l}{\scriptsize{False negative (TIBU: success; paper: fail): 1.0\%}} \\[-4pt]
+\cellcolor{green!20} & \multicolumn{4}{l}{\scriptsize{False positive (TIBU: fail; paper: success): 2.8\%}} \\[-4pt]
+\cellcolor{blue!20} & \multicolumn{4}{l}{\scriptsize{False missing (paper absent): 3.1\%}} \\
 \end{tabular}}

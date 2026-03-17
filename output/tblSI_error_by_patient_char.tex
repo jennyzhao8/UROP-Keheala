@@ -1,28 +1,32 @@
 \scriptsize{
 \begin{tabular}{lcccc}
 \hline\hline \\[-8pt]
-\rowcolor{yellow!15} & N & Mismatch rate & Type I rate & Type II rate \\
+\rowcolor{yellow!15} & N& \cellcolor{red!20} False negative (\%)& \cellcolor{green!20} False positive (\%)& \cellcolor{blue!20} False missing (\%) \\
 \hline \\[-8pt]
 \textit{Sex} & & & & \\
-\quad Male & 1992 & 7.4\% & 1.0\% & 3.5\% \\
-\quad Female & 1119 & 6.1\% & 1.1\% & 1.6\% \\
+\quad Male & 1992 & \cellcolor{red!20}1.0 & \cellcolor{green!20}3.5 & \cellcolor{blue!20}2.9 \\
+\quad Female & 1119 & \cellcolor{red!20}1.1 & \cellcolor{green!20}1.6 & \cellcolor{blue!20}3.4 \\
 \\[-4pt]
 \textit{Age group} & & & & \\
-\quad $<$15 & 438 & 3.0\% & 0.2\% & 1.4\% \\
-\quad 15--34 & 1418 & 7.2\% & 1.3\% & 2.9\% \\
-\quad 35--54 & 929 & 7.4\% & 0.8\% & 3.0\% \\
-\quad 55+ & 315 & 7.6\% & 1.9\% & 2.5\% \\
+\quad $<$15 & 438 & \cellcolor{red!20}0.2 & \cellcolor{green!20}1.4 & \cellcolor{blue!20}1.4 \\
+\quad 15--34 & 1418 & \cellcolor{red!20}1.3 & \cellcolor{green!20}2.9 & \cellcolor{blue!20}3.0 \\
+\quad 35--54 & 929 & \cellcolor{red!20}0.8 & \cellcolor{green!20}3.0 & \cellcolor{blue!20}3.7 \\
+\quad 55+ & 315 & \cellcolor{red!20}1.9 & \cellcolor{green!20}2.5 & \cellcolor{blue!20}3.2 \\
 \\[-4pt]
 \textit{HIV status} & & & & \\
-\quad HIV positive & 720 & 8.2\% & 1.0\% & 3.2\% \\
-\quad HIV negative & 2330 & 6.5\% & 1.0\% & 2.7\% \\
+\quad HIV positive & 720 & \cellcolor{red!20}1.0 & \cellcolor{green!20}3.2 & \cellcolor{blue!20}4.0 \\
+\quad HIV negative & 2330 & \cellcolor{red!20}1.0 & \cellcolor{green!20}2.7 & \cellcolor{blue!20}2.8 \\
 \\[-4pt]
 \textit{Disease characteristics} & & & & \\
-\quad Extrapulmonary TB (Yes) & 351 & 6.3\% & 0.6\% & 2.0\% \\
-\quad Extrapulmonary TB (No) & 2754 & 6.9\% & 1.1\% & 2.9\% \\
-\quad Bacteriologically confirmed (Yes) & 2177 & 7.5\% & 1.2\% & 2.8\% \\
-\quad Bacteriologically confirmed (No) & 934 & 5.7\% & 0.6\% & 2.8\% \\
-\quad Retreatment (Yes) & 290 & 6.6\% & 1.7\% & 1.7\% \\
-\quad Retreatment (No) & 2755 & 6.3\% & 0.9\% & 2.9\% \\
+\quad Extrapulmonary TB (Yes) & 351 & \cellcolor{red!20}0.6 & \cellcolor{green!20}2.0 & \cellcolor{blue!20}3.7 \\
+\quad Extrapulmonary TB (No) & 2754 & \cellcolor{red!20}1.1 & \cellcolor{green!20}2.9 & \cellcolor{blue!20}2.9 \\
+\quad Bacteriologically confirmed (Yes) & 2177 & \cellcolor{red!20}1.2 & \cellcolor{green!20}2.8 & \cellcolor{blue!20}3.4 \\
+\quad Bacteriologically confirmed (No) & 934 & \cellcolor{red!20}0.6 & \cellcolor{green!20}2.8 & \cellcolor{blue!20}2.2 \\
+\quad Retreatment (Yes) & 290 & \cellcolor{red!20}1.7 & \cellcolor{green!20}1.7 & \cellcolor{blue!20}3.1 \\
+\quad Retreatment (No) & 2755 & \cellcolor{red!20}0.9 & \cellcolor{green!20}2.9 & \cellcolor{blue!20}2.4 \\
 \hline\hline
+\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]
+\cellcolor{red!20} & \multicolumn{4}{l}{\scriptsize{False negative (TIBU: success; paper: fail): 1.0\%}} \\[-4pt]
+\cellcolor{green!20} & \multicolumn{4}{l}{\scriptsize{False positive (TIBU: fail; paper: success): 2.8\%}} \\[-4pt]
+\cellcolor{blue!20} & \multicolumn{4}{l}{\scriptsize{False missing (paper absent): 3.1\%}} \\
 \end{tabular}}
