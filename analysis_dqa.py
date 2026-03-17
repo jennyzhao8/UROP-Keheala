@@ -492,23 +492,17 @@ def generate_patient_characteristics_table(main_df, dqa_df):
 
     # Outcomes
     latex_lines.append(r"\textit{Outcomes} & & & \\")
-    latex_lines.append(
-        rf"\quad Unsuccessful outcome (\%) & {pct_tibu(tibu_full['unsuccessful_tibu'])} & {pct(df_study['unsuccessful_outcome'])} & {pct(df_paper['unsuccessful_outcome'])} \\"
-    )
-
-    latex_lines.append(r"\\[-4pt]")
-
-    # Treatment group breakdown (not applicable for all TIBU)
-    latex_lines.append(r"\textit{Treatment group (\%)} & & & \\")
-    for grp, label in [
-        ("Control Group",      "Control"),
-        ("Keheala Group",      "Keheala"),
-        ("SBCC Group",         "Platform"),
-        ("SMS Reminder Group", "SMS"),
+    for code, label in [
+        ("C",    "Cured"),
+        ("TC",   "Treatment completed"),
+        ("D",    "Died"),
+        ("F",    "Treatment failed"),
+        ("LTFU", "Lost to follow-up"),
     ]:
-        s = f"{(df_study['treatment_group']==grp).mean()*100:.1f}"
-        p = f"{(df_paper['treatment_group']==grp).mean()*100:.1f}"
-        latex_lines.append(rf"\quad {label} & -- & {s} & {p} \\")
+        t = f"{(tibu_full['treatmentoutcome'] == code).mean()*100:.1f}"
+        s = f"{(df_study['treatmentoutcome'] == code).mean()*100:.1f}"
+        p = f"{(df_paper['treatmentoutcome'] == code).mean()*100:.1f}"
+        latex_lines.append(rf"\quad {label} (\%) & {t} & {s} & {p} \\")
 
     latex_lines.append(r"\hline\hline")
     latex_lines.append(r"\end{tabular}}")
@@ -876,8 +870,7 @@ def generate_error_over_time_figure(main_df, dqa_df):
     ax.set_xlabel("Treatment completion date (quarter)")
     ax.set_ylabel("Error rate (%)")
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
-    ax.legend(framealpha=0.9, handlelength=0.4, handletextpad=0.4,
-              labelspacing=1.0, borderpad=0.7)
+    ax.legend(framealpha=0.9, handlelength=0.8, labelspacing=0.6, borderpad=0.6)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
 
