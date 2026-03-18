@@ -1,20 +1,29 @@
 \scriptsize{
 \begin{tabular}{lcccc}
 \hline\hline \\[-8pt]
-\rowcolor{yellow!15} & N& \cellcolor{red!20} False negative (\%)& \cellcolor{green!20} False positive (\%)& \cellcolor{blue!20} False missing (\%) \\
+\rowcolor{yellow!15} & N& False positive (\%)& False negative (\%)& Incomplete data (\%) \\
 \hline \\[-8pt]
-All & 3111 & \cellcolor{red!20}1.0 & \cellcolor{green!20}2.8 & \cellcolor{blue!20}3.1 \\
+\textit{By province} & & & & \\
+\quad Central & 19 & 0.0 & 21.1 & 5.3 \\
+\quad Coast & 745 & 0.9 & 1.9 & 4.3 \\
+\quad Eastern North & 2 & 0.0 & 0.0 & 0.0 \\
+\quad Eastern South & 287 & 1.4 & 7.7 & 8.0 \\
+\quad Nairobi & 378 & 1.6 & 2.1 & 0.5 \\
+\quad North Eastern & 748 & 1.2 & 0.7 & 0.3 \\
+\quad Nyanza North & 394 & 0.5 & 2.3 & 1.0 \\
+\quad Nyanza South & 43 & 2.3 & 0.0 & 0.0 \\
+\quad Rift Valley North & 44 & 0.0 & 0.0 & 6.8 \\
+\quad Rift Valley South & 419 & 0.5 & 6.0 & 6.7 \\
+\quad Western & 32 & 3.1 & 3.1 & 3.1 \\
 \hline \\[-8pt]
 \textit{By urban/rural} & & & & \\
-Urban & 985 & \cellcolor{red!20}1.1 & \cellcolor{green!20}2.2 & \cellcolor{blue!20}2.1 \\
-Rural & 2122 & \cellcolor{red!20}1.0 & \cellcolor{green!20}3.1 & \cellcolor{blue!20}3.5 \\
+\quad Urban & 985 & 1.1 & 2.2 & 2.1 \\
+\quad Rural & 2122 & 1.0 & 3.1 & 3.5 \\
 \hline \\[-8pt]
 \textit{By clinic size} & & & & \\
-Large clinic & 2438 & \cellcolor{red!20}1.2 & \cellcolor{green!20}2.4 & \cellcolor{blue!20}3.4 \\
-Small clinic & 673 & \cellcolor{red!20}0.3 & \cellcolor{green!20}4.5 & \cellcolor{blue!20}1.8 \\
+\quad Large clinic & 2438 & 1.2 & 2.4 & 3.4 \\
+\quad Small clinic & 673 & 0.3 & 4.5 & 1.8 \\
+\hline \\[-8pt]
+All & 3111 & 1.0 & 2.8 & 3.1 \\
 \hline\hline
-\multicolumn{5}{l}{\scriptsize{\textit{Color coding:}}} \\[-4pt]
-\cellcolor{red!20} & \multicolumn{4}{l}{\scriptsize{False negative (TIBU: success; paper: fail): 1.0\%}} \\[-4pt]
-\cellcolor{green!20} & \multicolumn{4}{l}{\scriptsize{False positive (TIBU: fail; paper: success): 2.8\%}} \\[-4pt]
-\cellcolor{blue!20} & \multicolumn{4}{l}{\scriptsize{False missing (paper absent): 3.1\%}} \\
 \end{tabular}}

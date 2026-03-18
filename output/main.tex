@@ -1,0 +1,100 @@
+\documentclass[12pt]{article}
+
+% --- Packages ---
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[table,dvipsnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+% --- Title ---
+\title{Supplementary Information: Data Quality Assurance Analysis\\
+\large Keheala Study 2}
+\date{}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Patient Characteristics}
+% =============================================================================
+
+Table~\ref{tbl:patient_char} compares patient characteristics across three
+cohorts: all patients registered in the TIBU electronic system during the study
+period, patients at study clinics recorded in TIBU (MITT sample), and patients
+at study clinics whose records were audited in the paper registry DQA.
+
+\begin{table}[H]
+    \centering
+    \caption{Patient characteristics across TIBU and paper registry cohorts.}
+    \label{tbl:patient_char}
+    \input{tblSI_patient_characteristics.tex}
+\end{table}
+
+% =============================================================================
+\section{Data Quality Assurance: Outcome Discrepancies}
+% =============================================================================
+
+\subsection{Crosstab of TIBU vs.\ Paper Registry Outcomes}
+
+Table~\ref{tbl:crosstab} shows the full cross-tabulation of treatment outcomes
+recorded in TIBU against outcomes recorded in the paper registry for all
+matched patients ($N = 3{,}370$). Cells are shaded to indicate the type of
+discrepancy: \colorbox{red!20}{\strut~} Type~I error ($\alpha$): TIBU records
+success but paper records failure (false positive); \colorbox{green!20}{\strut~}
+Type~II error ($\beta$): TIBU records failure but paper records success (false
+negative); \colorbox{blue!20}{\strut~} incomplete data: no paper record present.
+Bold cells indicate the seven most common TIBU$\to$paper correction pairs.
+
+\begin{table}[H]
+    \centering
+    \caption{Cross-tabulation of treatment outcomes in TIBU vs.\ paper registry.
+             Bold = top 7 most common correction pairs.}
+    \label{tbl:crosstab}
+    \input{tblSI_DQAcrosstab.tex}
+\end{table}
+
+\subsection{Error Rates by Patient Characteristics and Province}
+
+Table~\ref{tbl:patient_errors} reports false-negative, false-positive, and
+incomplete data rates broken down by patient characteristics (sex, age group,
+HIV status, disease characteristics) and province.
+
+\begin{table}[H]
+    \centering
+    \caption{DQA error rates by patient characteristics and province.}
+    \label{tbl:patient_errors}
+    \input{tblSI_error_by_patient_char.tex}
+\end{table}
+
+\subsection{Correction Lag}
+
+Table~\ref{tbl:lag} summarises the number of days between the outcome date
+recorded in TIBU and the outcome date recorded in the paper registry, stratified
+by error type. A negative lag indicates the paper record was entered before TIBU.
+
+\begin{table}[H]
+    \centering
+    \caption{Days between TIBU and paper registry outcome dates, by error type.}
+    \label{tbl:lag}
+    \input{tblSI_correction_lag.tex}
+\end{table}
+
+\subsection{Error Rates Over Time}
+
+Figure~\ref{fig:over_time} plots DQA error rates across the study period.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_over_time.pdf}
+    \caption{DQA error rates over time.}
+    \label{fig:over_time}
+\end{figure}
+
+\end{document}
