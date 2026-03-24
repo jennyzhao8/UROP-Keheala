@@ -22,20 +22,31 @@
 \newpage
 
 % =============================================================================
-\section{Patient Characteristics}
+\section{Study Population}
 % =============================================================================
 
-Table~\ref{tbl:patient_char} compares patient characteristics across three
-cohorts: all patients registered in the TIBU electronic system during the study
-period, patients at study clinics recorded in TIBU (MITT sample), and patients
-at study clinics whose records were audited in the paper registry DQA.
+Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} describe the study
+population across three cohorts: all patients registered in the TIBU electronic
+system during the study period, patients at study clinics recorded in TIBU
+(MITT sample), and patients at study clinics whose records were audited in the
+paper registry DQA.
 
+\renewcommand{\thetable}{1a}
 \begin{table}[H]
     \centering
-    \caption{Patient characteristics across TIBU and paper registry cohorts.}
+    \caption{Individual and disease characteristics across TIBU and paper registry cohorts.}
     \label{tbl:patient_char}
     \input{tblSI_patient_characteristics.tex}
 \end{table}
+
+\renewcommand{\thetable}{1b}
+\begin{table}[H]
+    \centering
+    \caption{Treatment outcomes across TIBU and paper registry cohorts.}
+    \label{tbl:outcomes}
+    \input{tblSI_outcomes.tex}
+\end{table}
+\renewcommand{\thetable}{\arabic{table}}
 
 % =============================================================================
 \section{Data Quality Assurance: Outcome Discrepancies}
@@ -45,30 +56,30 @@ at study clinics whose records were audited in the paper registry DQA.
 
 Table~\ref{tbl:crosstab} shows the full cross-tabulation of treatment outcomes
 recorded in TIBU against outcomes recorded in the paper registry for all
-matched patients ($N = 3{,}370$). Cells are shaded to indicate the type of
-discrepancy: \colorbox{red!20}{\strut~} Type~I error ($\alpha$): TIBU records
-success but paper records failure (false positive); \colorbox{green!20}{\strut~}
-Type~II error ($\beta$): TIBU records failure but paper records success (false
-negative); \colorbox{blue!20}{\strut~} incomplete data: no paper record present.
+matched patients. Each cell shows the count and its percentage of the row
+total. Colored text indicates the type of discrepancy: {\color{red} red} =
+Type~I error: TIBU records success but paper records failure; {\color{green!60!black} green} =
+Type~II error: TIBU records failure but paper records success; {\color{blue} blue} =
+incomplete data: TIBU has no outcome recorded but paper does.
 Bold cells indicate the seven most common TIBU$\to$paper correction pairs.
 
 \begin{table}[H]
     \centering
-    \caption{Cross-tabulation of treatment outcomes in TIBU vs.\ paper registry.
-             Bold = top 7 most common correction pairs.}
+    \caption{Cross-tabulation of treatment outcomes in TIBU vs.\ paper registry.}
     \label{tbl:crosstab}
     \input{tblSI_DQAcrosstab.tex}
 \end{table}
 
-\subsection{Error Rates by Patient Characteristics and Province}
+\subsection{Error Rates by Individual and Disease Characteristics}
 
-Table~\ref{tbl:patient_errors} reports false-negative, false-positive, and
-incomplete data rates broken down by patient characteristics (sex, age group,
-HIV status, disease characteristics) and province.
+Table~\ref{tbl:patient_errors} reports false-positive, false-negative, and
+incomplete data rates broken down by individual characteristics (sex, age
+group) and disease characteristics (extrapulmonary TB, HIV status,
+bacteriological confirmation, retreatment).
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by patient characteristics and province.}
+    \caption{DQA error rates by individual and disease characteristics.}
     \label{tbl:patient_errors}
     \input{tblSI_error_by_patient_char.tex}
 \end{table}
