@@ -838,6 +838,11 @@ def _build_error_df(main_df, dqa_df):
     df.loc[df["tibu_date"].dt.year < 2010,  "tibu_date"]  = pd.NaT
     df.loc[df["paper_date"].dt.year < 2010, "paper_date"] = pd.NaT
     df["lag_days"] = (df["paper_date"] - df["tibu_date"]).dt.days
+
+    # Age of record: days from registration to TIBU outcome date (treatment duration)
+    df["reg_date"] = pd.to_datetime(df["dateregistered_formatted"], errors="coerce")
+    df["age_days"] = (df["tibu_date"] - df["reg_date"]).dt.days
+    df.loc[df["age_days"] < 0, "age_days"] = pd.NA
     return df
 
 
@@ -885,15 +890,15 @@ def generate_error_over_time_figure(main_df, dqa_df):
 
 def generate_correction_lag_table(main_df, dqa_df):
     """
-    Table: days between TIBU outcome date and paper outcome date,
+    Table: age of TIBU record (days from TIBU outcome date to DQA verification date),
     broken down by error type.
     Saves tblSI_correction_lag.tex
     """
     print("\n--- Generating correction lag table ---")
     df = _build_error_df(main_df, dqa_df)
 
-    def lag_stats(mask):
-        sub = df.loc[mask & df["lag_days"].notna(), "lag_days"]
+    def age_stats(mask):
+        sub = df.loc[mask & df["age_days"].notna(), "age_days"]
         if len(sub) == 0:
             return "--", "--", "--", "--", "--"
         return (
@@ -920,23 +925,22 @@ def generate_correction_lag_table(main_df, dqa_df):
     latex_lines.append(r"\hline \\[-8pt]")
 
     for mask, label, color in rows:
-        n, mean, med, q1, q3 = lag_stats(mask)
+        n, mean, med, q1, q3 = age_stats(mask)
         latex_lines.append(
             rf"\textcolor{{{color}}}{{{label}}} & {n} & {mean} & {med} & {q1} & {q3} \\"
         )
 
-    # False missing: no paper date, so lag is undefined
-    fm_n = int((df["false_miss"] == 1).sum())
+    # False missing: include age stats if available
+    fm_mask = df["false_miss"] == 1
+    n, mean, med, q1, q3 = age_stats(fm_mask)
     latex_lines.append(
-        rf"\textcolor{{blue}}{{False missing}} & {fm_n:,}"
-        r" & \multicolumn{4}{l}{No paper record --- lag undefined} \\"
+        rf"\textcolor{{blue}}{{False missing}} & {n} & {mean} & {med} & {q1} & {q3} \\"
     )
 
     latex_lines.append(r"\hline\hline")
     latex_lines.append(
-        r"\multicolumn{6}{l}{\scriptsize{\textit{Note: lag = paper outcome date $-$ TIBU outcome date.}}} \\"
+        r"\multicolumn{6}{l}{\scriptsize{\textit{Note: age of record = TIBU outcome date $-$ date of registration. Negative values excluded.}}} \\"
     )
-    latex_lines.append(r"\multicolumn{6}{l}{\scriptsize{\textit{Negative lag indicates paper was recorded before TIBU.}}} \\")
     latex_lines.append(r"\end{tabular}}")
 
     out_file = os.path.join(OUTPUT_DIR, "tblSI_correction_lag.tex")
