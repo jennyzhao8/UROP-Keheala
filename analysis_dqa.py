@@ -251,24 +251,28 @@ def generate_crosstab_table(main_df, dqa_df):
     good_p = {"C", "TC"}
     bad_p  = {"D", "F", "LTFU"}
 
-    # Find top 7 off-diagonal correction pairs (for bolding)
     col_order = ["Blank", "C", "D", "F", "LTFU", "TC", "Total"]
     row_order = ["Blank", "C", "D", "F", "LTFU", "MT4", "N/A", "NC", "TC", "TO", "Total"]
 
-    cell_values = {}
-    for r in row_order[:-1]:
-        if r not in ct.index: continue
-        for c in col_order[:-1]:
-            if r != c:
-                cell_values[(r, c)] = int(ct.loc[r].get(c, 0))
-    top7 = set(sorted(cell_values, key=cell_values.get, reverse=True)[:7])
+    data_cols = [c for c in col_order if c != "Total"]  # 6 cols, each split into N + (%)
+    n_data_cols = len(data_cols)  # 6
+    total_cols = 1 + n_data_cols * 2 + 1  # row label + 6*2 + Total = 14
+
+    col_spec = "l|" + "|".join(["rr"] * n_data_cols) + "|r"
 
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{l|cccccc|c}")
+    latex_lines.append(rf"\begin{{tabular}}{{{col_spec}}}")
     latex_lines.append(r"\hline \hline \\[-8pt]")
-    latex_lines.append(r"Outcome in TIBU & \multicolumn{6}{c}{Treatment Outcome in Paper Registry} & Total\\")
-    latex_lines.append(r"&         Blank &           C   &       D  &        F  &     LTFU  &       TC &    \\ \hline \\[-8pt]")
+    latex_lines.append(
+        rf"Outcome in TIBU & \multicolumn{{{n_data_cols * 2}}}{{c}}{{Treatment Outcome in Paper Registry}} & Total\\"
+    )
+    col_headers = " & ".join(
+        rf"\multicolumn{{2}}{{c|}}{{{c}}}" for c in data_cols
+    )
+    latex_lines.append(rf"& {col_headers} & \\ ")
+    sub_headers = " & ".join([r"$N$ & (\%)"] * n_data_cols)
+    latex_lines.append(rf"& {sub_headers} & \\ \hline \\[-8pt]")
 
     for row_idx in row_order:
         if row_idx not in ct.index: continue
@@ -279,35 +283,39 @@ def generate_crosstab_table(main_df, dqa_df):
         row_total = int(row_data.get("Total", 0))
         for col in col_order:
             raw = int(row_data.get(col, 0))
-            if row_idx == "Total" or col == "Total":
-                val = f"{raw:,}"
+            if col == "Total":
+                cells.append(f"{raw:,}")
+            elif row_idx == "Total":
+                cells.append(f"{raw:,}")
+                cells.append("")
             else:
                 pct = (raw / row_total * 100) if row_total > 0 else 0
-                val = rf"{raw:,} ({pct:.1f}\%)"
-                if (row_idx, col) in top7:
-                    val = rf"\textbf{{{val}}}"
-            if row_idx == "Total" or col == "Total":
-                cells.append(val)
-            elif row_idx == "Blank" and col != "Blank":
-                cells.append(rf"\textcolor{{blue}}{{{val}}}")
-            elif row_idx in good_t and col in bad_p:
-                cells.append(rf"\textcolor{{red}}{{{val}}}")
-            elif row_idx in bad_t and col in good_p:
-                cells.append(rf"\textcolor{{green!60!black}}{{{val}}}")
-            else:
-                cells.append(val)
+                n_str = f"{raw:,}"
+                p_str = rf"({pct:.1f}\%)"
+                if row_idx == "Blank" and col != "Blank":
+                    color = "blue"
+                elif row_idx in good_t and col in bad_p:
+                    color = "red"
+                elif row_idx in bad_t and col in good_p:
+                    color = "green!60!black"
+                else:
+                    color = None
+                if color:
+                    n_str = rf"\textcolor{{{color}}}{{{n_str}}}"
+                    p_str = rf"\textcolor{{{color}}}{{{p_str}}}"
+                cells.append(n_str)
+                cells.append(p_str)
         latex_lines.append(f"{row_idx} & " + " & ".join(cells) + r" \\")
 
     latex_lines.append(r"\hline \hline")
+    latex_lines.append(r"\noalign{\vspace{4pt}}")
     latex_lines.append(
-        r"\multicolumn{8}{l}{\parbox{0.65\textwidth}{\scriptsize{"
+        rf"\multicolumn{{{total_cols}}}{{l}}{{\parbox{{0.65\textwidth}}{{"
         r"\textit{Note:} Percentages are row shares. \\"
-        r"\textit{Color coding:} "
-        r"\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure); "
-        r"\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success); \\"
-        r"\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present); "
-        r"\textbf{Bold} = top 7 most common correction pairs."
-        r"}}} \\"
+        r"\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\"
+        r"\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\"
+        r"\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present)."
+        r"}} \\"
     )
     latex_lines.append(r"\end{tabular}}")
     
@@ -460,6 +468,18 @@ def generate_patient_characteristics_table(main_df, dqa_df):
         v = pd.to_numeric(series, errors="coerce")
         return f"{v.mean()*100:.1f}"
 
+    def npct_tibu(series):
+        v = pd.to_numeric(series, errors="coerce")
+        n = int(v.sum())
+        p = v.mean() * 100
+        return rf"{n:,} & ({p:.1f}\%)"
+
+    def npct(series):
+        v = pd.to_numeric(series, errors="coerce")
+        n = int(v.sum())
+        p = v.mean() * 100
+        return rf"{n:,} & ({p:.1f}\%)"
+
     def mean_val(series):
         v = pd.to_numeric(series, errors="coerce")
         return f"{v.mean():.1f}"
@@ -467,44 +487,45 @@ def generate_patient_characteristics_table(main_df, dqa_df):
     def header_lines():
         return [
             r"Characteristic"
-            r" & \multicolumn{2}{c}{Digital}"
-            r" & Paper \\",
-            rf" & \shortstack{{All \\ (N={N_tibu:,})}}"
-            rf" & \shortstack{{Study clinics \\ (N={N_study:,})}}"
-            rf" & \shortstack{{Study clinics \\ (N={N_paper:,})}} \\ \hline \\[-8pt]",
+            r" & \multicolumn{4}{c}{Digital}"
+            r" & \multicolumn{2}{c}{Paper} \\",
+            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{All \\ (N={N_tibu:,})}}}}"
+            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{Study clinics \\ (N={N_study:,})}}}}"
+            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{Study clinics \\ (N={N_paper:,})}}}} \\",
+            r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\ \hline \\[-8pt]",
         ]
 
     # --- Table 1a: Patient and disease characteristics ---
     lines_1a = []
     lines_1a.append(r"\scriptsize{")
-    lines_1a.append(r"\begin{tabular}{lccc}")
+    lines_1a.append(r"\begin{tabular}{lrr|rr|rr}")
     lines_1a.append(r"\hline\hline \\[-8pt]")
     lines_1a.extend(header_lines())
 
-    lines_1a.append(r"\textit{Individual characteristics} & & & \\")
+    lines_1a.append(r"\textit{Individual characteristics} & & & & & & \\")
     lines_1a.append(
-        rf"\quad Male (\%) & {pct_tibu(tibu_full['male_tibu'])} & {pct(df_study['male'])} & {pct(df_paper['male'])} \\"
+        rf"\quad Male & {npct_tibu(tibu_full['male_tibu'])} & {npct(df_study['male'])} & {npct(df_paper['male'])} \\"
     )
     lines_1a.append(
-        rf"\quad Mean age (years) & {mean_val(tibu_full['age_years'])} & {mean_val(df_study['age_in_years'])} & {mean_val(df_paper['age_in_years'])} \\"
+        rf"\quad Mean age (years) & {mean_val(tibu_full['age_years'])} & & {mean_val(df_study['age_in_years'])} & & {mean_val(df_paper['age_in_years'])} & \\"
     )
     lines_1a.append(r"\\[-4pt]")
 
-    lines_1a.append(r"\textit{Disease characteristics} & & & \\")
+    lines_1a.append(r"\textit{Disease characteristics} & & & & & & \\")
     lines_1a.append(
-        rf"\quad Extrapulmonary TB (\%) & {pct_tibu(tibu_full['extrapulmonary_tibu'])} & {pct(df_study['extrapulmonary'])} & {pct(df_paper['extrapulmonary'])} \\"
+        rf"\quad Bacteriologically confirmed & -- & & {npct(df_study['bacteriologically_confirmed'])} & {npct(df_paper['bacteriologically_confirmed'])} \\"
     )
     lines_1a.append(
-        rf"\quad Bacteriologically confirmed (\%) & -- & {pct(df_study['bacteriologically_confirmed'])} & {pct(df_paper['bacteriologically_confirmed'])} \\"
+        rf"\quad Drug resistant & {npct_tibu(tibu_full['drugresistant_tibu'])} & {npct(df_study['drugresistant'])} & {npct(df_paper['drugresistant'])} \\"
     )
     lines_1a.append(
-        rf"\quad Retreatment (\%) & {pct_tibu(tibu_full['retreatment_tibu'])} & {pct(df_study['retreatment'])} & {pct(df_paper['retreatment'])} \\"
+        rf"\quad Extrapulmonary TB & {npct_tibu(tibu_full['extrapulmonary_tibu'])} & {npct(df_study['extrapulmonary'])} & {npct(df_paper['extrapulmonary'])} \\"
     )
     lines_1a.append(
-        rf"\quad Drug resistant (\%) & {pct_tibu(tibu_full['drugresistant_tibu'])} & {pct(df_study['drugresistant'])} & {pct(df_paper['drugresistant'])} \\"
+        rf"\quad HIV coinfection & {npct_tibu(tibu_full['hiv_pos_tibu'])} & {npct(df_study['hiv_positive'])} & {npct(df_paper['hiv_positive'])} \\"
     )
     lines_1a.append(
-        rf"\quad HIV coinfection (\%) & {pct_tibu(tibu_full['hiv_pos_tibu'])} & {pct(df_study['hiv_positive'])} & {pct(df_paper['hiv_positive'])} \\"
+        rf"\quad Retreatment & {npct_tibu(tibu_full['retreatment_tibu'])} & {npct(df_study['retreatment'])} & {npct(df_paper['retreatment'])} \\"
     )
 
     lines_1a.append(r"\hline\hline")
@@ -518,11 +539,11 @@ def generate_patient_characteristics_table(main_df, dqa_df):
     # --- Table 1b: Outcomes ---
     lines_1b = []
     lines_1b.append(r"\scriptsize{")
-    lines_1b.append(r"\begin{tabular}{lccc}")
+    lines_1b.append(r"\begin{tabular}{lrr|rr|rr}")
     lines_1b.append(r"\hline\hline \\[-8pt]")
     lines_1b.extend(header_lines())
 
-    lines_1b.append(r"\textit{Outcomes} & & & \\")
+    lines_1b.append(r"\textit{Outcomes} & & & & & & \\")
     for code, label in [
         ("C",    "Cured"),
         ("TC",   "Treatment completed"),
@@ -536,14 +557,23 @@ def generate_patient_characteristics_table(main_df, dqa_df):
         (None,   "Missing"),
     ]:
         if code is None:
-            t = f"{tibu_full['treatmentoutcome'].isna().mean()*100:.1f}"
-            s = f"{df_study['treatmentoutcome'].isna().mean()*100:.1f}"
-            p = f"{df_paper['treatmentoutcome'].isna().mean()*100:.1f}"
+            t_n = tibu_full['treatmentoutcome'].isna().sum()
+            t_pct = tibu_full['treatmentoutcome'].isna().mean()*100
+            s_n = df_study['treatmentoutcome'].isna().sum()
+            s_pct = df_study['treatmentoutcome'].isna().mean()*100
+            p_n = df_paper['treatmentoutcome'].isna().sum()
+            p_pct = df_paper['treatmentoutcome'].isna().mean()*100
         else:
-            t = f"{(tibu_full['treatmentoutcome'] == code).mean()*100:.1f}"
-            s = f"{(df_study['treatmentoutcome'] == code).mean()*100:.1f}"
-            p = f"{(df_paper['treatmentoutcome'] == code).mean()*100:.1f}"
-        lines_1b.append(rf"\quad {label} (\%) & {t} & {s} & {p} \\")
+            t_n = (tibu_full['treatmentoutcome'] == code).sum()
+            t_pct = (tibu_full['treatmentoutcome'] == code).mean()*100
+            s_n = (df_study['treatmentoutcome'] == code).sum()
+            s_pct = (df_study['treatmentoutcome'] == code).mean()*100
+            p_n = (df_paper['treatmentoutcome'] == code).sum()
+            p_pct = (df_paper['treatmentoutcome'] == code).mean()*100
+        t = rf"{t_n:,} & ({t_pct:.1f}\%)"
+        s = rf"{s_n:,} & ({s_pct:.1f}\%)"
+        p = rf"{p_n:,} & ({p_pct:.1f}\%)"
+        lines_1b.append(rf"\quad {label} & {t} & {s} & {p} \\")
 
     lines_1b.append(r"\hline\hline")
     lines_1b.append(r"\end{tabular}}")
@@ -792,21 +822,16 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
     # Disease characteristics
     latex_lines.append(r"\textit{Disease characteristics} & & & & \\")
     for col, yes_label, no_label in [
+        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed", r"\quad Not bacteriologically confirmed"),
         ("extrapulmonary",              r"\quad Extrapulmonary",              r"\quad Pulmonary"),
+        ("retreatment",                 r"\quad Retreatment",                 r"\quad New case"),
     ]:
-        for val, label in [(0, no_label), (1, yes_label)]:
+        for val, label in [(1, yes_label), (0, no_label)]:
             n, fn, fp, fm = stats(df[df[col] == val])
             latex_lines.append(rf"{label} & {n} & {fn} & {fp} & {fm} \\")
     for val, label in [(1, r"\quad HIV positive"), (0, r"\quad HIV negative")]:
         n, fn, fp, fm = stats(df[df["hiv_positive"] == val])
         latex_lines.append(rf"{label} & {n} & {fn} & {fp} & {fm} \\")
-    for col, yes_label, no_label in [
-        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed", r"\quad Not bacteriologically confirmed"),
-        ("retreatment",                 r"\quad Retreatment",                 r"\quad New case"),
-    ]:
-        for val, label in [(0, no_label), (1, yes_label)]:
-            n, fn, fp, fm = stats(df[df[col] == val])
-            latex_lines.append(rf"{label} & {n} & {fn} & {fp} & {fm} \\")
     latex_lines.append(r"\end{tabular}}")
 
     out_file = os.path.join(OUTPUT_DIR, "tblSI_error_by_patient_char.tex")
