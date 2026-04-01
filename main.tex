@@ -25,17 +25,29 @@
 \section{Patient Characteristics}
 % =============================================================================
 
-Table~\ref{tbl:patient_char} compares patient characteristics across three
-cohorts: all patients registered in the TIBU electronic system during the study
-period, patients at study clinics recorded in TIBU (MITT sample), and patients
-at study clinics whose records were audited in the paper registry DQA.
+Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} describe the study
+population across three cohorts: all patients registered in the TIBU electronic
+system during the study period, patients at study clinics recorded in TIBU
+(MITT sample), and patients at study clinics whose records were audited in the
+paper registry DQA.
 
+\renewcommand{\thetable}{1a}
 \begin{table}[H]
     \centering
-    \caption{Patient characteristics across TIBU and paper registry cohorts.}
+    \caption{Individual and disease characteristics across TIBU and paper registry cohorts.}
     \label{tbl:patient_char}
     \input{tblSI_patient_characteristics.tex}
 \end{table}
+
+\renewcommand{\thetable}{1b}
+\begin{table}[H]
+    \centering
+    \caption{Treatment outcomes across TIBU and paper registry cohorts.}
+    \label{tbl:outcomes}
+    \input{tblSI_outcomes.tex}
+\end{table}
+\setcounter{table}{1}
+\renewcommand{\thetable}{\arabic{table}}
 
 % =============================================================================
 \section{Data Quality Assurance: Outcome Discrepancies}
@@ -45,68 +57,79 @@ at study clinics whose records were audited in the paper registry DQA.
 
 Table~\ref{tbl:crosstab} shows the full cross-tabulation of treatment outcomes
 recorded in TIBU against outcomes recorded in the paper registry for all
-matched patients ($N = 3{,}370$). Cells are shaded to indicate the type of
-discrepancy: \colorbox{red!20}{\strut~} Type~I error ($\alpha$): TIBU records
-success but paper records failure (false positive); \colorbox{green!20}{\strut~}
-Type~II error ($\beta$): TIBU records failure but paper records success (false
-negative); \colorbox{blue!20}{\strut~} incomplete data: no paper record present.
-Bold cells indicate the seven most common TIBU$\to$paper correction pairs.
+matched patients ($N = 3{,}370$).
 
 \begin{table}[H]
     \centering
-    \caption{Cross-tabulation of treatment outcomes in TIBU vs.\ paper registry.
-             Bold = top 7 most common correction pairs.}
+    \caption{Cross-tabulation of treatment outcomes in TIBU vs.\ paper registry.}
     \label{tbl:crosstab}
-    \input{tblSI_DQAcrosstab.tex}
+    \resizebox{\textwidth}{!}{\input{tblSI_DQAcrosstab.tex}}
 \end{table}
 
 \subsection{Error Rates by Clinic Characteristics}
 
 Table~\ref{tbl:clinic_errors} reports false-negative, false-positive, and
-false-missing rates stratified by clinic urbanicity and size.
+false-missing rates stratified by province, urbanicity, and clinic size.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by clinic characteristics.}
+    \caption{DQA error rates by province, urbanicity, and clinic size.}
     \label{tbl:clinic_errors}
     \input{tblSI_error_by_clinic_char.tex}
 \end{table}
 
-\subsection{Error Rates by Patient Characteristics and Province}
+\subsection{Error Rates by Patient Characteristics}
 
 Table~\ref{tbl:patient_errors} reports false-negative, false-positive, and
-incomplete data rates broken down by patient characteristics (sex, age group,
-HIV status, disease characteristics) and province.
+false-missing rates broken down by individual characteristics and disease
+characteristics.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by patient characteristics and province.}
+    \caption{DQA error rates by individual and disease characteristics.}
     \label{tbl:patient_errors}
     \input{tblSI_error_by_patient_char.tex}
 \end{table}
 
-\subsection{Correction Lag}
+\subsection{Age of Record by Error Type}
 
-Table~\ref{tbl:lag} summarises the number of days between the outcome date
-recorded in TIBU and the outcome date recorded in the paper registry, stratified
-by error type. A negative lag indicates the paper record was entered before TIBU.
+Table~\ref{tbl:lag} reports the age of record (days from date of registration
+to TIBU outcome date) stratified by error type.
 
 \begin{table}[H]
     \centering
-    \caption{Days between TIBU and paper registry outcome dates, by error type.}
+    \caption{Age of record (days from registration to TIBU outcome date) by error type.}
     \label{tbl:lag}
     \input{tblSI_correction_lag.tex}
 \end{table}
 
+\subsection{Error Rates by Age of Record}
+
+Figure~\ref{fig:age} plots DQA error rates by age of record (days from registration to TIBU outcome date), binned in 60-day intervals.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_by_age.pdf}
+    \caption{DQA error rates by age of record.}
+    \label{fig:age}
+\end{figure}
+
 \subsection{Error Rates Over Time}
 
-Figure~\ref{fig:over_time} plots DQA error rates across the study period.
+Figure~\ref{fig:over_time} plots DQA error rates across the study period (quarters with $N \geq 10$). Figure~\ref{fig:over_time_n100} restricts to quarters with $N \geq 100$ to reduce noise from small samples.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{fig_error_over_time.pdf}
-    \caption{DQA error rates over time.}
+    \caption{DQA error rates over time (quarters with $N \geq 10$).}
     \label{fig:over_time}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_over_time_n100.pdf}
+    \caption{DQA error rates over time, restricted to quarters with $N \geq 100$.}
+    \label{fig:over_time_n100}
 \end{figure}
 
 \end{document}

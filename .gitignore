@@ -3,3 +3,9 @@
 __pycache__/
 *.pyc
 .Rhistory
+*.aux
+*.log
+*.out
+*.toc
+main.pdf
+output/main.pdf
