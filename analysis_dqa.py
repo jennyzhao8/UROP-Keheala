@@ -690,42 +690,48 @@ def generate_error_by_clinic(main_df, dqa_df):
 
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{l|rr|ccc}")
+    latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
-        r"& $N$ & (\%)"
-        r"& False positive"
-        r"& False negative"
-        r"& Incomplete data \\"
+        r"& \multicolumn{2}{c|}{}"
+        r" & \multicolumn{2}{c|}{False positive}"
+        r" & \multicolumn{2}{c|}{False negative}"
+        r" & \multicolumn{2}{c}{Incomplete data} \\"
     )
+    latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
     latex_lines.append(r"\hline \\[-8pt]")
 
     # By province
-    latex_lines.append(r"\textit{By province} & & & & & \\")
+    latex_lines.append(r"\textit{By province} & & & & & & & & \\")
     for prov in sorted(df["province"].dropna().unique()):
         n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["province"] == prov])
-        latex_lines.append(rf"\quad {prov} & {n:,} & ({n_pct:.1f}\%) & {fmt(fp_n, fp_p)} & {fmt(fn_n, fn_p)} & {fmt(fm_n, fm_p)} \\")
-    latex_lines.append(r"\hline \\[-8pt]")
+        latex_lines.append(rf"\quad {prov} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # By urban/rural
-    latex_lines.append(r"\textit{By urban/rural} & & & & & \\")
+    latex_lines.append(r"\rule{0pt}{14pt}\textit{By urban/rural} & & & & & & & & \\")
     for label, mask in [("Urban", df["urban"] == 1), ("Rural", df["urban"] == 0)]:
         n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[mask])
-        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fmt(fp_n, fp_p)} & {fmt(fn_n, fn_p)} & {fmt(fm_n, fm_p)} \\")
-    latex_lines.append(r"\hline \\[-8pt]")
+        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # By clinic size
-    latex_lines.append(r"\textit{By clinic size} & & & & & \\")
+    latex_lines.append(r"\rule{0pt}{14pt}\textit{By clinic size} & & & & & & & & \\")
     for label, mask in [("Large clinic", df["large_clinic"] == 1), ("Small clinic", df["large_clinic"] == 0)]:
         n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[mask])
-        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fmt(fp_n, fp_p)} & {fmt(fn_n, fn_p)} & {fmt(fm_n, fm_p)} \\")
-    latex_lines.append(r"\hline \\[-8pt]")
+        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # All
     n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df)
-    latex_lines.append(rf"All & {n:,} & ({n_pct:.1f}\%) & {fmt(fp_n, fp_p)} & {fmt(fn_n, fn_p)} & {fmt(fm_n, fm_p)} \\")
+    latex_lines.append(rf"\rule{{0pt}}{{14pt}}All & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\noalign{\vspace{4pt}}")
+    latex_lines.append(
+        rf"\multicolumn{{9}}{{l}}{{\parbox{{0.55\textwidth}}{{\textit{{Note:}} "
+        rf"Urban/rural classification is based on clinic records. "
+        rf"Large clinics are those with at least {int(median_size):,} patients registered in TIBU (median); "
+        rf"small clinics are those with fewer.}}}}"
+        r" \\"
+    )
     latex_lines.append(r"\end{tabular}}")
 
     with open(os.path.join(OUTPUT_DIR, "tblSI_error_by_clinic_char.tex"), "w") as f:
@@ -798,52 +804,63 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
 
     def stats(sub):
         if len(sub) == 0:
-            return 0, 0.0, "-", "-", "-"
+            return 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        return (n, n_pct,
-                f"{sub['false_neg'].mean()*100:.1f}",
-                f"{sub['false_pos'].mean()*100:.1f}",
-                f"{sub['false_miss'].mean()*100:.1f}")
+        fn_n = int(sub["false_neg"].sum())
+        fn_p = sub["false_neg"].mean() * 100
+        fp_n = int(sub["false_pos"].sum())
+        fp_p = sub["false_pos"].mean() * 100
+        fm_n = int(sub["false_miss"].sum())
+        fm_p = sub["false_miss"].mean() * 100
+        return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
+
+    def fmt(count, pct):
+        return rf"{count:,} ({pct:.1f}\%)"
 
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{l|rr|ccc}")
+    latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
-        r"& $N$ & (\%)"
-        r"& False positive (\%)"
-        r"& False negative (\%)"
-        r"& Incomplete data (\%) \\"
+        r"& \multicolumn{2}{c|}{}"
+        r" & \multicolumn{2}{c|}{False positive}"
+        r" & \multicolumn{2}{c|}{False negative}"
+        r" & \multicolumn{2}{c}{Incomplete data} \\"
     )
+    latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
     latex_lines.append(r"\hline \\[-8pt]")
 
     # Individual characteristics
-    latex_lines.append(r"\textit{Individual characteristics} & & & & & \\")
-    n, n_pct, fn, fp, fm = stats(df[df["male"] == 1])
-    latex_lines.append(rf"\quad Male (\%) & {n:,} & ({n_pct:.1f}\%) & {fn} & {fp} & {fm} \\")
+    latex_lines.append(r"\textit{Individual characteristics} & & & & & & & & \\")
+    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["male"] == 1])
+    latex_lines.append(rf"\quad Male (\%) & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # Age
-    latex_lines.append(r"\rule{0pt}{14pt}\textit{Age group} & & & & & \\")
+    latex_lines.append(r"\rule{0pt}{14pt}\textit{Age group} & & & & & & & & \\")
     for grp in [r"$<$15", "15--34", "35--54", "55+"]:
-        n, n_pct, fn, fp, fm = stats(df[df["age_group"] == grp])
-        latex_lines.append(rf"\quad {grp} & {n:,} & ({n_pct:.1f}\%) & {fn} & {fp} & {fm} \\")
-
-    latex_lines.append(r"\noalign{\vspace{4pt}}")
+        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["age_group"] == grp])
+        latex_lines.append(rf"\quad {grp} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # Disease characteristics
-    latex_lines.append(r"\textit{Disease characteristics} & & & & & \\")
+    latex_lines.append(r"\rule{0pt}{14pt}\textit{Disease characteristics} & & & & & & & & \\")
     for col, yes_label, no_label in [
         ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed", r"\quad Not bacteriologically confirmed"),
         ("extrapulmonary",              r"\quad Extrapulmonary",              r"\quad Pulmonary"),
         ("retreatment",                 r"\quad Retreatment",                 r"\quad New case"),
     ]:
         for val, label in [(1, yes_label), (0, no_label)]:
-            n, n_pct, fn, fp, fm = stats(df[df[col] == val])
-            latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fn} & {fp} & {fm} \\")
+            n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df[col] == val])
+            latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
     for val, label in [(1, r"\quad HIV positive"), (0, r"\quad HIV negative")]:
-        n, n_pct, fn, fp, fm = stats(df[df["hiv_positive"] == val])
-        latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fn} & {fp} & {fm} \\")
+        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["hiv_positive"] == val])
+        latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+
+    # All
+    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df)
+    latex_lines.append(rf"\rule{{0pt}}{{14pt}}All & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+
+    latex_lines.append(r"\hline\hline")
     latex_lines.append(r"\end{tabular}}")
 
     out_file = os.path.join(OUTPUT_DIR, "tblSI_error_by_patient_char.tex")
@@ -945,8 +962,8 @@ def generate_error_over_time_figure(main_df, dqa_df):
         df_q = df_q.copy()
         df_q["date"] = df_q["quarter"].dt.to_timestamp()
         fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(df_q["date"], df_q["fn"] * 100, color="red",   marker="o", linewidth=1.5, label="False negative")
-        ax.plot(df_q["date"], df_q["fp"] * 100, color="green", marker="s", linewidth=1.5, label="False positive")
+        ax.plot(df_q["date"], df_q["fp"] * 100, color="red",   marker="o", linewidth=1.5, label="False positive (Type I)")
+        ax.plot(df_q["date"], df_q["fn"] * 100, color="green", marker="s", linewidth=1.5, label="False negative (Type II)")
         ax.plot(df_q["date"], df_q["fm"] * 100, color="blue",  marker="^", linewidth=1.5, label="False missing")
         ax.xaxis.set_major_locator(mdates.YearLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -961,7 +978,7 @@ def generate_error_over_time_figure(main_df, dqa_df):
         plt.close(fig)
         print(f"Saved {out_file}")
 
-    _plot_over_time(by_q[by_q["n"] >= 10], os.path.join(OUTPUT_DIR, "fig_error_over_time.pdf"))
+    _plot_over_time(by_q[by_q["n"] >= 10],  os.path.join(OUTPUT_DIR, "fig_error_over_time.pdf"))
     _plot_over_time(by_q[by_q["n"] >= 100], os.path.join(OUTPUT_DIR, "fig_error_over_time_n100.pdf"))
 
 
@@ -979,15 +996,13 @@ def generate_correction_lag_table(main_df, dqa_df):
     def age_stats(mask):
         sub = df.loc[mask & df["age_days"].notna(), "age_days"]
         if len(sub) == 0:
-            return 0, 0.0, "--", "--", "--", "--"
+            return 0, 0.0, "--", "--"
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
         return (
             n, n_pct,
             f"{sub.mean():.0f}",
             f"{sub.median():.0f}",
-            f"{sub.quantile(0.25):.0f}",
-            f"{sub.quantile(0.75):.0f}",
         )
 
     rows = [
@@ -997,37 +1012,38 @@ def generate_correction_lag_table(main_df, dqa_df):
 
     latex_lines = []
     latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{l|rr|cccc}")
+    latex_lines.append(r"\begin{tabular}{l|rr|cc}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
-        r"Error type & $N$ & (\%)"
-        r"& Mean (days) & Median (days) & Q1 (days) & Q3 (days) \\"
+        r"Error type & $N$ & (\%) & Mean & Median \\"
     )
     latex_lines.append(r"\hline \\[-8pt]")
 
     for mask, label, color in rows:
-        n, n_pct, mean, med, q1, q3 = age_stats(mask)
+        n, n_pct, mean, med = age_stats(mask)
         latex_lines.append(
-            rf"\textcolor{{{color}}}{{{label}}} & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} & {q1} & {q3} \\"
+            rf"\textcolor{{{color}}}{{{label}}} & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} \\"
         )
 
     # False missing
     fm_mask = df["false_miss"] == 1
-    n, n_pct, mean, med, q1, q3 = age_stats(fm_mask)
+    n, n_pct, mean, med = age_stats(fm_mask)
     latex_lines.append(
-        rf"\textcolor{{blue}}{{False missing}} & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} & {q1} & {q3} \\"
+        rf"\textcolor{{blue}}{{False missing}} & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} \\"
     )
 
     # No error
     no_error_mask = (df["false_neg"] == 0) & (df["false_pos"] == 0) & (df["false_miss"] == 0)
-    n, n_pct, mean, med, q1, q3 = age_stats(no_error_mask)
+    n, n_pct, mean, med = age_stats(no_error_mask)
     latex_lines.append(
-        rf"No error & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} & {q1} & {q3} \\"
+        rf"No error & {n:,} & ({n_pct:.1f}\%) & {mean} & {med} \\"
     )
 
     latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\noalign{\vspace{4pt}}")
     latex_lines.append(
-        r"\multicolumn{7}{l}{\scriptsize{\textit{Note: age of record = TIBU outcome date $-$ date of registration. Negative values excluded.}}} \\"
+        r"\multicolumn{5}{l}{\parbox{0.55\textwidth}{\scriptsize{\textit{Note: Age of record is the number of days that have passed since the patient's"
+        r" registration date to the treatment outcome date recorded in TIBU. Records with negative values excluded.}}}} \\"
     )
     latex_lines.append(r"\end{tabular}}")
 
