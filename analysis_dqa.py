@@ -270,7 +270,8 @@ def generate_crosstab_table(main_df, dqa_df):
     col_spec = "l|" + "|".join(["rr"] * n_data_cols) + "|r"
 
     latex_lines = []
-    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\newsavebox{\DQACrosstabBox}")
+    latex_lines.append(r"\savebox{\DQACrosstabBox}{\scriptsize{")
     latex_lines.append(rf"\begin{{tabular}}{{{col_spec}}}")
     latex_lines.append(r"\hline \hline \\[-8pt]")
     latex_lines.append(
@@ -317,16 +318,17 @@ def generate_crosstab_table(main_df, dqa_df):
         latex_lines.append(f"{row_idx} & " + " & ".join(cells) + r" \\")
 
     latex_lines.append(r"\hline \hline")
-    latex_lines.append(r"\noalign{\vspace{4pt}}")
+    latex_lines.append(r"\end{tabular}}}")
+    latex_lines.append(r"\begin{minipage}{\wd\DQACrosstabBox}")
+    latex_lines.append(r"\usebox{\DQACrosstabBox}")
+    latex_lines.append(r"\par\vspace{4pt}\noindent")
     latex_lines.append(
-        rf"\multicolumn{{{total_cols}}}{{l}}{{\parbox{{0.65\textwidth}}{{"
         r"\textit{Note:} Percentages are row shares. \\"
         r"\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\"
         r"\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\"
         r"\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present)."
-        r"}} \\"
     )
-    latex_lines.append(r"\end{tabular}}")
+    latex_lines.append(r"\end{minipage}")
     
     out_file = os.path.join(OUTPUT_DIR, "tblSI_DQAcrosstab.tex")
     with open(out_file, "w") as f:
@@ -689,7 +691,8 @@ def generate_error_by_clinic(main_df, dqa_df):
         return rf"{count:,} ({pct:.1f}\%)"
 
     latex_lines = []
-    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\newsavebox{\ClinicErrBox}")
+    latex_lines.append(r"\savebox{\ClinicErrBox}{\scriptsize{")
     latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
@@ -724,15 +727,16 @@ def generate_error_by_clinic(main_df, dqa_df):
     latex_lines.append(rf"\rule{{0pt}}{{14pt}}All & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     latex_lines.append(r"\hline\hline")
-    latex_lines.append(r"\noalign{\vspace{4pt}}")
+    latex_lines.append(r"\end{tabular}}}")
+    latex_lines.append(r"\begin{minipage}{\wd\ClinicErrBox}")
+    latex_lines.append(r"\usebox{\ClinicErrBox}")
+    latex_lines.append(r"\par\vspace{4pt}\noindent")
     latex_lines.append(
-        rf"\multicolumn{{9}}{{l}}{{\parbox{{0.55\textwidth}}{{\textit{{Note:}} "
-        rf"Urban/rural classification is based on clinic records. "
+        rf"\scriptsize{{\textit{{Note:}} Urban/rural classification is based on clinic records. "
         rf"Large clinics are those with at least {int(median_size):,} patients registered in TIBU (median); "
-        rf"small clinics are those with fewer.}}}}"
-        r" \\"
+        rf"small clinics are those with fewer.}}"
     )
-    latex_lines.append(r"\end{tabular}}")
+    latex_lines.append(r"\end{minipage}")
 
     with open(os.path.join(OUTPUT_DIR, "tblSI_error_by_clinic_char.tex"), "w") as f:
         f.write("\n".join(latex_lines))
@@ -1073,7 +1077,8 @@ def generate_correction_lag_table(main_df, dqa_df):
     ]
 
     latex_lines = []
-    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\newsavebox{\CorrLagBox}")
+    latex_lines.append(r"\savebox{\CorrLagBox}{\scriptsize{")
     latex_lines.append(r"\begin{tabular}{l|rr|cc}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
@@ -1102,12 +1107,13 @@ def generate_correction_lag_table(main_df, dqa_df):
     )
 
     latex_lines.append(r"\hline\hline")
-    latex_lines.append(r"\noalign{\vspace{4pt}}")
-    latex_lines.append(
-        r"\multicolumn{5}{l}{\parbox{0.55\textwidth}{\scriptsize{\textit{Note: Age of record is the number of days that have passed since the patient's"
-        r" registration date to the treatment outcome date recorded in TIBU. Records with negative values excluded.}}}} \\"
-    )
-    latex_lines.append(r"\end{tabular}}")
+    latex_lines.append(r"\end{tabular}}}")
+    latex_lines.append(r"\begin{minipage}{\wd\CorrLagBox}")
+    latex_lines.append(r"\usebox{\CorrLagBox}")
+    latex_lines.append(r"\par\vspace{4pt}\noindent")
+    latex_lines.append(r"\scriptsize{\textit{Note: Age of record is the number of days that have passed since the patient's"
+        r" registration date to the treatment outcome date recorded in TIBU. Records with negative values excluded.}}")
+    latex_lines.append(r"\end{minipage}")
 
     out_file = os.path.join(OUTPUT_DIR, "tblSI_correction_lag.tex")
     with open(out_file, "w") as f:

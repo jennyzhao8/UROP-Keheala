@@ -1,4 +1,5 @@
-\scriptsize{
+\newsavebox{\DQACrosstabBox}
+\savebox{\DQACrosstabBox}{\scriptsize{
 \begin{tabular}{l|rr|rr|rr|rr|rr|rr|r}
 \hline \hline \\[-8pt]
 Outcome in TIBU & \multicolumn{12}{c}{Treatment Outcome in Paper Registry} & Total\\
@@ -16,6 +17,9 @@ TO & 4 & (3.1\%) & 43 & (33.9\%) & 5 & (3.9\%) & 0 & (0.0\%) & 13 & (10.2\%) & 6
 \hline \\[-8pt]
 Total & 182 &  & 1,221 &  & 194 &  & 37 &  & 167 &  & 1,567 &  & 3,370 \\
 \hline \hline
-\noalign{\vspace{4pt}}
-\multicolumn{14}{l}{\parbox{0.65\textwidth}{\textit{Note:} Percentages are row shares. \\\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present).}} \\
-\end{tabular}}
+\end{tabular}}}
+\begin{minipage}{\wd\DQACrosstabBox}
+\usebox{\DQACrosstabBox}
+\par\vspace{4pt}\noindent
+\textit{Note:} Percentages are row shares. \\\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present).
+\end{minipage}

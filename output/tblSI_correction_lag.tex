@@ -1,4 +1,5 @@
-\scriptsize{
+\newsavebox{\CorrLagBox}
+\savebox{\CorrLagBox}{\scriptsize{
 \begin{tabular}{l|rr|cc}
 \hline\hline \\[-8pt]
 Error type & $N$ & (\%) & Mean & Median \\
@@ -8,6 +9,9 @@ Error type & $N$ & (\%) & Mean & Median \\
 \textcolor{blue}{False missing} & 81 & (2.8\%) & 157 & 148 \\
 No error & 2,802 & (95.6\%) & 190 & 170 \\
 \hline\hline
-\noalign{\vspace{4pt}}
-\multicolumn{5}{l}{\parbox{0.55\textwidth}{\scriptsize{\textit{Note: Age of record is the number of days that have passed since the patient's registration date to the treatment outcome date recorded in TIBU. Records with negative values excluded.}}}} \\
-\end{tabular}}
+\end{tabular}}}
+\begin{minipage}{\wd\CorrLagBox}
+\usebox{\CorrLagBox}
+\par\vspace{4pt}\noindent
+\scriptsize{\textit{Note: Age of record is the number of days that have passed since the patient's registration date to the treatment outcome date recorded in TIBU. Records with negative values excluded.}}
+\end{minipage}
