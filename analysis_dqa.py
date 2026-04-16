@@ -738,6 +738,68 @@ def generate_error_by_clinic(main_df, dqa_df):
         f.write("\n".join(latex_lines))
     print(f"Saved error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv, tblSI_error_by_clinic_char.tex")
 
+def generate_clinic_characteristics_table(main_df, dqa_df):
+    """
+    Simple summary table of N, mismatch rate, Type I and Type II error rates
+    broken down by All / Urban / Rural.
+    Saves tblSI_clinic_characteristics.tex
+    """
+    print("\n--- Generating Clinic Characteristics Table ---")
+
+    clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+
+    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
+    merged["clinic_id_num"] = pd.to_numeric(merged["clinic_id"], errors="coerce")
+    merged = merged.merge(
+        clinic_summary[["clinic_id", "urban"]],
+        left_on="clinic_id_num", right_on="clinic_id", how="left"
+    )
+
+    bad  = ["D", "F", "LTFU", "NC"]
+    good = ["C", "TC"]
+    merged["uo_tibu"] = np.nan
+    merged.loc[merged["treatmentoutcome"].isin(bad),  "uo_tibu"] = 1
+    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
+    merged["uo_paper"] = np.nan
+    merged.loc[merged["to_paper"].isin(bad),  "uo_paper"] = 1
+    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
+
+    df = merged.dropna(subset=["uo_tibu"]).copy()
+    df["mismatch"]  = ((df["uo_tibu"] != df["uo_paper"]) | df["uo_paper"].isna()).astype(int)
+    df["false_neg"] = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)  # Type I
+    df["false_pos"] = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)  # Type II
+
+    def row_stats(sub):
+        n = len(sub)
+        mismatch = sub["mismatch"].mean() * 100
+        type1    = sub["false_neg"].mean() * 100
+        type2    = sub["false_pos"].mean() * 100
+        return n, mismatch, type1, type2
+
+    all_s   = row_stats(df)
+    urban_s = row_stats(df[df["urban"] == 1])
+    rural_s = row_stats(df[df["urban"] == 0])
+
+    latex_lines = []
+    latex_lines.append(r"\scriptsize{")
+    latex_lines.append(r"\begin{tabular}{lcccc}")
+    latex_lines.append(r"\hline\hline \\[-8pt]")
+    latex_lines.append(r"\rowcolor{yellow!15} & All & Urban & Rural \\")
+    latex_lines.append(r"\hline \\[-8pt]")
+    latex_lines.append(rf"N & {all_s[0]:,} & {urban_s[0]:,} & {rural_s[0]:,} \\")
+    latex_lines.append(rf"Mismatch rate & {all_s[1]:.1f}\% & {urban_s[1]:.1f}\% & {rural_s[1]:.1f}\% \\")
+    latex_lines.append(rf"Type I error rate & {all_s[2]:.1f}\% & {urban_s[2]:.1f}\% & {rural_s[2]:.1f}\% \\")
+    latex_lines.append(rf"Type II error rate & {all_s[3]:.1f}\% & {urban_s[3]:.1f}\% & {rural_s[3]:.1f}\% \\")
+    latex_lines.append(r"\hline\hline")
+    latex_lines.append(r"\end{tabular}}")
+
+    out_file = os.path.join(OUTPUT_DIR, "tblSI_clinic_characteristics.tex")
+    with open(out_file, "w") as f:
+        f.write("\n".join(latex_lines))
+    print(f"Saved {out_file}")
+
+
 def generate_error_by_outcome(main_df, dqa_df):
     """
     Computes mismatch rates by TIBU outcome.
@@ -1088,11 +1150,12 @@ def main():
         stat_c["N_valid"], stats["SMS Reminder Group"]["N_valid"],
         stat_c["prop"], stats["SMS Reminder Group"]["prop"]
     )
-    
+    1
     if dqa_df_cleaned is None: return
     generate_patient_characteristics_table(main_df, dqa_df_cleaned)
     generate_crosstab_table(main_df, dqa_df_cleaned)
     generate_error_by_clinic(main_df, dqa_df_cleaned)
+    generate_clinic_characteristics_table(main_df, dqa_df_cleaned)
     generate_outcome_corrections(main_df, dqa_df_cleaned)
     generate_error_by_outcome(main_df, dqa_df_cleaned)
     generate_error_by_patient_characteristics(main_df, dqa_df_cleaned)

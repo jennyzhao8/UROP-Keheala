@@ -68,14 +68,20 @@ matched patients ($N = 3{,}370$).
 
 \subsection{Error Rates by Clinic Characteristics}
 
-Table~\ref{tbl:clinic_errors} reports false-negative, false-positive, and
-false-missing rates stratified by province, urbanicity, and clinic size.
+Table~\ref{tbl:clinic_char} summarizes mismatch, Type I, and Type II error rates by urbanicity. Table~\ref{tbl:clinic_errors} reports false-negative, false-positive, and false-missing rates stratified by province, urbanicity, and clinic size.
+
+\begin{table}[H]
+    \centering
+    \caption{DQA error rates by urbanicity.}
+    \label{tbl:clinic_char}
+    \input{tblSI_clinic_characteristics.tex}
+\end{table}
 
 \begin{table}[H]
     \centering
     \caption{DQA error rates by province, urbanicity, and clinic size.}
     \label{tbl:clinic_errors}
-    \input{tblSI_error_by_clinic_char.tex}
+    \resizebox{\textwidth}{!}{\input{tblSI_error_by_clinic_char.tex}}
 \end{table}
 
 \subsection{Error Rates by Patient Characteristics}
@@ -88,7 +94,7 @@ characteristics.
     \centering
     \caption{DQA error rates by individual and disease characteristics.}
     \label{tbl:patient_errors}
-    \input{tblSI_error_by_patient_char.tex}
+    \resizebox{\textwidth}{!}{\input{tblSI_error_by_patient_char.tex}}
 \end{table}
 
 \subsection{Age of Record by Error Type}
@@ -105,13 +111,21 @@ to TIBU outcome date) stratified by error type.
 
 \subsection{Error Rates by Age of Record}
 
-Figure~\ref{fig:age} plots DQA error rates by age of record (days from registration to TIBU outcome date), binned in 60-day intervals.
+\setcounter{figure}{1}
+Figure~\ref{fig:age} plots DQA error rates by age of record (days from registration to TIBU outcome date), binned in 90-day (quarterly) intervals with a 3-quarter centered rolling mean ($N \geq 10$ per bin). Figure~\ref{fig:age_n100} restricts to bins with $N \geq 100$ to reduce noise from small samples.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{fig_error_by_age.pdf}
-    \caption{DQA error rates by age of record.}
+    \caption{DQA error rates by age of record (bins with $N \geq 10$).}
     \label{fig:age}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_by_age_n100.pdf}
+    \caption{DQA error rates by age of record, restricted to bins with $N \geq 100$.}
+    \label{fig:age_n100}
 \end{figure}
 
 \subsection{Error Rates Over Time}
