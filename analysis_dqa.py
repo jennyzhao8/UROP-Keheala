@@ -985,11 +985,14 @@ def generate_error_by_age_figure(main_df, dqa_df):
         .reset_index()
     )
     by_age = by_age[by_age["n"] >= 10].copy()
+    for col in ["fn", "fp", "fm"]:
+        by_age[f"{col}_se"] = np.sqrt(by_age[col] * (1 - by_age[col]) / by_age["n"]) * 100
+    by_age["fn"] *= 100; by_age["fp"] *= 100; by_age["fm"] *= 100
 
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(by_age["age_bin"], by_age["fn"] * 100, color="red",   marker="o", linewidth=1.5, label="False negative")
-    ax.plot(by_age["age_bin"], by_age["fp"] * 100, color="green", marker="s", linewidth=1.5, label="False positive")
-    ax.plot(by_age["age_bin"], by_age["fm"] * 100, color="blue",  marker="^", linewidth=1.5, label="False missing")
+    ax.errorbar(by_age["age_bin"], by_age["fn"], yerr=by_age["fn_se"], color="red",   fmt="-o", linewidth=1.5, capsize=3, elinewidth=0.8, label="False negative")
+    ax.errorbar(by_age["age_bin"], by_age["fp"], yerr=by_age["fp_se"], color="green", fmt="-s", linewidth=1.5, capsize=3, elinewidth=0.8, label="False positive")
+    ax.errorbar(by_age["age_bin"], by_age["fm"], yerr=by_age["fm_se"], color="blue",  fmt="-^", linewidth=1.5, capsize=3, elinewidth=0.8, label="False missing")
 
     ax.set_xlabel("Age of record (days from registration to TIBU outcome date)")
     ax.set_ylabel("Error rate (%)")
@@ -1022,15 +1025,20 @@ def generate_error_over_time_figure(main_df, dqa_df):
              fm=("false_miss", "mean"), n=("scrn", "count"))
         .reset_index()
     )
+    for col in ["fn", "fp", "fm"]:
+        by_q[f"{col}_se"] = np.sqrt(by_q[col] * (1 - by_q[col]) / by_q["n"]) * 100
     print(by_q[["quarter", "n", "fn", "fp", "fm"]].to_string())
 
     def _plot_over_time(df_q, out_file):
         df_q = df_q.copy()
         df_q["date"] = df_q["quarter"].dt.to_timestamp()
+        for col in ["fn", "fp", "fm"]:
+            df_q[col] = df_q[col].rolling(window=3, center=True, min_periods=1).mean()
+            df_q[f"{col}_se"] = df_q[f"{col}_se"].rolling(window=3, center=True, min_periods=1).mean()
         fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(df_q["date"], df_q["fp"] * 100, color="red",   marker="o", linewidth=1.5, label="False positive (Type I)")
-        ax.plot(df_q["date"], df_q["fn"] * 100, color="green", marker="s", linewidth=1.5, label="False negative (Type II)")
-        ax.plot(df_q["date"], df_q["fm"] * 100, color="blue",  marker="^", linewidth=1.5, label="False missing")
+        ax.errorbar(df_q["date"], df_q["fp"] * 100, yerr=df_q["fp_se"], color="red",   fmt="-o", linewidth=1.5, capsize=3, elinewidth=0.8, label="False positive (Type I)")
+        ax.errorbar(df_q["date"], df_q["fn"] * 100, yerr=df_q["fn_se"], color="green", fmt="-s", linewidth=1.5, capsize=3, elinewidth=0.8, label="False negative (Type II)")
+        ax.errorbar(df_q["date"], df_q["fm"] * 100, yerr=df_q["fm_se"], color="blue",  fmt="-^", linewidth=1.5, capsize=3, elinewidth=0.8, label="False missing")
         ax.xaxis.set_major_locator(mdates.YearLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
         ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
