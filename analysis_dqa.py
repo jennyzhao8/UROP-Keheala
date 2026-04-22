@@ -133,6 +133,7 @@ def load_study_data():
     df = pd.read_csv(INPUT_DATA_CLEANED, low_memory=False)
     if "anon_scrn" in df.columns:
         df = df.rename(columns={"anon_scrn": "scrn"})
+    df["treatmentoutcome"] = df["treatmentoutcome"].replace("MT4", "TO")
 
     tibu = pd.read_csv(TIBU_DEIDENTIFIED, dtype=str)[["anon_scrn_tibu", "source_file"]]
     tibu = tibu.rename(columns={"anon_scrn_tibu": "scrn", "source_file": "tibu_source_file"})
@@ -261,7 +262,7 @@ def generate_crosstab_table(main_df, dqa_df):
     bad_p  = {"D", "F", "LTFU"}
 
     col_order = ["Blank", "C", "D", "F", "LTFU", "TC", "Total"]
-    row_order = ["Blank", "C", "D", "F", "LTFU", "MT4", "N/A", "NC", "TC", "TO", "Total"]
+    row_order = ["Blank", "C", "D", "F", "LTFU", "N/A", "NC", "TC", "TO", "Total"]
 
     data_cols = [c for c in col_order if c != "Total"]  # 6 cols, each split into N + (%)
     n_data_cols = len(data_cols)  # 6
@@ -442,6 +443,7 @@ def generate_patient_characteristics_table(main_df, dqa_df):
 
     # --- Column 1: All TIBU during study period ---
     tibu_full = pd.read_csv(TIBU_DEIDENTIFIED)
+    tibu_full["treatmentoutcome"] = tibu_full["treatmentoutcome"].replace("MT4", "TO")
 
     tibu_full["male_tibu"] = tibu_full["sexmf"].isin(["M", "Male"]).astype(float)
 
@@ -458,6 +460,9 @@ def generate_patient_characteristics_table(main_df, dqa_df):
     tibu_full["extrapulmonary_tibu"] = tibu_full["typeoftbpep"].eq("EP").astype(float)
     tibu_full["retreatment_tibu"] = tibu_full["typeofpatient"].isin(["R", "TLF"]).astype(float)
     tibu_full["drugresistant_tibu"] = tibu_full["resistancepattern"].notna().astype(float)
+    smear_pos = tibu_full["sputumsmearexamination0thmon"].str.strip() == "Pos"
+    gx_pos = tibu_full["genexpert"].str.strip().str.startswith("MTB detected")
+    tibu_full["bact_confirmed_tibu"] = (smear_pos | gx_pos).astype(float)
     bad_outcomes = ["D", "F", "LTFU"]
     tibu_full["unsuccessful_tibu"] = tibu_full["treatmentoutcome"].isin(bad_outcomes).astype(float)
 
@@ -522,7 +527,7 @@ def generate_patient_characteristics_table(main_df, dqa_df):
     )
     lines_1a.append(r"\rule{0pt}{14pt}\textit{Disease characteristics} & & & & & & \\")
     lines_1a.append(
-        rf"\quad Bacteriologically confirmed & -- & & {npct(df_study['bacteriologically_confirmed'])} & {npct(df_paper['bacteriologically_confirmed'])} \\"
+        rf"\quad Bacteriologically confirmed & {npct_tibu(tibu_full['bact_confirmed_tibu'])} & {npct(df_study['bacteriologically_confirmed'])} & {npct(df_paper['bacteriologically_confirmed'])} \\"
     )
     lines_1a.append(
         rf"\quad Drug resistant & {npct_tibu(tibu_full['drugresistant_tibu'])} & {npct(df_study['drugresistant'])} & {npct(df_paper['drugresistant'])} \\"
@@ -561,7 +566,6 @@ def generate_patient_characteristics_table(main_df, dqa_df):
         ("LTFU", "Lost to follow-up"),
         ("NC",   "Not completed"),
         ("TO",   "Transfer out"),
-        ("MT4",  "MT4"),
         ("NTB",  "Not TB"),
         (None,   "Missing"),
     ]:
@@ -910,17 +914,15 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
 
     # Disease characteristics
     latex_lines.append(r"\rule{0pt}{14pt}\textit{Disease characteristics} & & & & & & & & \\")
-    for col, yes_label, no_label in [
-        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed", r"\quad Not bacteriologically confirmed"),
-        ("extrapulmonary",              r"\quad Extrapulmonary",              r"\quad Pulmonary"),
-        ("retreatment",                 r"\quad Retreatment",                 r"\quad New case"),
+    for col, label in [
+        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed"),
+        ("extrapulmonary",              r"\quad Extrapulmonary"),
+        ("retreatment",                 r"\quad Retreatment"),
     ]:
-        for val, label in [(1, yes_label), (0, no_label)]:
-            n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df[col] == val])
-            latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-    for val, label in [(1, r"\quad HIV positive"), (0, r"\quad HIV negative")]:
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["hiv_positive"] == val])
+        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df[col] == 1])
         latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["hiv_positive"] == 1])
+    latex_lines.append(rf"\quad HIV positive & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
 
     # All
     n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df)
@@ -970,7 +972,7 @@ def generate_error_by_age_figure(main_df, dqa_df):
     """
     Line chart of false-negative, false-positive, and false-missing rates
     by age of record (days from registration to TIBU outcome date), binned in 60-day intervals.
-    Saves fig_error_by_age.pdf
+    Saves fig_error_by_age.pdf and fig_error_by_age_n100.pdf
     """
     print("\n--- Generating error-by-age figure ---")
     df = _build_error_df(main_df, dqa_df)
@@ -984,27 +986,27 @@ def generate_error_by_age_figure(main_df, dqa_df):
              fm=("false_miss", "mean"), n=("scrn", "count"))
         .reset_index()
     )
-    by_age = by_age[by_age["n"] >= 10].copy()
     for col in ["fn", "fp", "fm"]:
         by_age[f"{col}_se"] = np.sqrt(by_age[col] * (1 - by_age[col]) / by_age["n"]) * 100
     by_age["fn"] *= 100; by_age["fp"] *= 100; by_age["fm"] *= 100
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.errorbar(by_age["age_bin"], by_age["fn"], yerr=by_age["fn_se"], color="red",   fmt="-o", linewidth=1.5, capsize=3, elinewidth=0.8, label="False negative")
-    ax.errorbar(by_age["age_bin"], by_age["fp"], yerr=by_age["fp_se"], color="green", fmt="-s", linewidth=1.5, capsize=3, elinewidth=0.8, label="False positive")
-    ax.errorbar(by_age["age_bin"], by_age["fm"], yerr=by_age["fm_se"], color="blue",  fmt="-^", linewidth=1.5, capsize=3, elinewidth=0.8, label="False missing")
+    def _plot_by_age(df_a, out_file):
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.errorbar(df_a["age_bin"], df_a["fp"], yerr=df_a["fp_se"], color="red",   fmt="-o", linewidth=1.5, capsize=3, elinewidth=0.8, label="False positive")
+        ax.errorbar(df_a["age_bin"], df_a["fn"], yerr=df_a["fn_se"], color="green", fmt="-s", linewidth=1.5, capsize=3, elinewidth=0.8, label="False negative")
+        ax.errorbar(df_a["age_bin"], df_a["fm"], yerr=df_a["fm_se"], color="blue",  fmt="-^", linewidth=1.5, capsize=3, elinewidth=0.8, label="False missing")
+        ax.set_xlabel("Age of record (days from registration to TIBU outcome date)")
+        ax.set_ylabel("Error rate (%)")
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
+        ax.legend(framealpha=0.9, handlelength=0.8, labelspacing=0.6, borderpad=0.6)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+        fig.tight_layout()
+        fig.savefig(out_file, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved {out_file}")
 
-    ax.set_xlabel("Age of record (days from registration to TIBU outcome date)")
-    ax.set_ylabel("Error rate (%)")
-    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
-    ax.legend(framealpha=0.9, handlelength=0.8, labelspacing=0.6, borderpad=0.6)
-    ax.grid(axis="y", linestyle="--", alpha=0.4)
-    fig.tight_layout()
-
-    out_file = os.path.join(OUTPUT_DIR, "fig_error_by_age.pdf")
-    fig.savefig(out_file, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved {out_file}")
+    _plot_by_age(by_age[by_age["n"] >= 10].copy(),  os.path.join(OUTPUT_DIR, "fig_error_by_age.pdf"))
+    _plot_by_age(by_age[by_age["n"] >= 100].copy(), os.path.join(OUTPUT_DIR, "fig_error_by_age_n100.pdf"))
 
 
 def generate_error_over_time_figure(main_df, dqa_df):
