@@ -9,3 +9,9 @@ __pycache__/
 *.toc
 main.pdf
 output/main.pdf
+
+# Claude Code local config
+.claude/
+
+# Google Drive sync conflict files
+*.conflict[0-9]*
