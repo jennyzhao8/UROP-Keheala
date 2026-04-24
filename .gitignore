@@ -7,8 +7,7 @@ __pycache__/
 *.log
 *.out
 *.toc
-main.pdf
-output/main.pdf
+output/tibu_dqa.pdf
 
 # Claude Code local config
 .claude/

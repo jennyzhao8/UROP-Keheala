@@ -1,0 +1,17 @@
+\newsavebox{\DateTriangleBox}
+\savebox{\DateTriangleBox}{\scriptsize{
+\begin{tabular}{lrrrr}
+\hline\hline \\[-8pt]
+ & & & \multicolumn{2}{c}{Paper audit date resolves violation} \\
+Violation & Total & In audit & TIBU outcome suspect & TIBU outcome plausible \\
+\hline \\[-8pt]
+Outcome date before registration & 951 & 184 & 89 (48\%) & 39 (21\%) \\
+Outcome date before treatment start & 429 & 72 & 11 (15\%) & 1 (1\%) \\
+Treatment duration $<$ 30 days & 1,288 & 273 & 118 (43\%) & 155 (57\%) \\
+\hline\hline
+\end{tabular}}}
+\begin{minipage}{\wd\DateTriangleBox}
+\usebox{\DateTriangleBox}
+\par\vspace{4pt}\noindent
+\scriptsize{\textit{Note:} For each TIBU internal-consistency violation, ``In audit'' counts records in the DQA-matched subset (with a paper outcome date). The two rightmost columns apply a heuristic: we call the TIBU outcome \emph{suspect} when the paper date is consistent with the TIBU registration/treatment-start timeline (paper outcome clearly later), and \emph{plausible} when the paper date is within 30 days of the TIBU outcome date (confirming the outcome really did happen early). Neither column is mutually exclusive; some records are classified by both heuristics, or by neither.}
+\end{minipage}

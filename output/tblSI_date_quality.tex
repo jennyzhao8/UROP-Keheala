@@ -1,0 +1,19 @@
+\newsavebox{\DateQualityBox}
+\savebox{\DateQualityBox}{\scriptsize{
+\begin{tabular}{lrrrrr}
+\hline\hline \\[-8pt]
+Field & $N$ & Blank & Unparseable & Out of range & Valid \\
+\hline \\[-8pt]
+\textit{Paper registry} (audit records) & & & & & \\
+\quad Paper outcome date & 3,645 & 459 (12.6\%) & 30 (0.8\%) & 5 (0.1\%) & 3,151 (86.4\%) \\
+\rule{0pt}{10pt}\textit{TIBU} (study-clinic extract) & & & & & \\
+\quad TIBU clinical registration date & 17,740 & 978 (5.5\%) & 4 (0.0\%) & 0 (0.0\%) & 16,758 (94.5\%) \\
+\quad TIBU treatment-start date & 17,740 & 1,001 (5.6\%) & 0 (0.0\%) & 0 (0.0\%) & 16,739 (94.4\%) \\
+\quad TIBU outcome date & 17,740 & 1,608 (9.1\%) & 0 (0.0\%) & 1 (0.0\%) & 16,131 (90.9\%) \\
+\hline\hline
+\end{tabular}}}
+\begin{minipage}{\wd\DateQualityBox}
+\usebox{\DateQualityBox}
+\par\vspace{4pt}\noindent
+\scriptsize{\textit{Note:} Plausible range = 2017-01-01 through 2022-06-30. ``Unparseable'' values are nonblank strings that could not be parsed as a date; ``out of range'' are parseable dates outside the plausible window.}
+\end{minipage}

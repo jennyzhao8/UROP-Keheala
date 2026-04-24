@@ -326,7 +326,7 @@ def generate_crosstab_table(main_df, dqa_df):
         r"\textit{Note:} Percentages are row shares. \\"
         r"\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\"
         r"\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\"
-        r"\textcolor{blue}{Blue} = Incomplete data (TIBU: no outcome; paper: outcome present)."
+        r"\textcolor{blue}{Blue} = Missing in TIBU (TIBU: no outcome; paper: outcome present)."
     )
     latex_lines.append(r"\end{minipage}")
     
@@ -690,7 +690,7 @@ def generate_error_by_clinic(main_df, dqa_df):
         r"& \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c}{Incomplete data} \\"
+        r" & \multicolumn{2}{c}{Missing in TIBU} \\"
     )
     latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
     latex_lines.append(r"\hline \\[-8pt]")
@@ -855,7 +855,7 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
         r"& \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c}{Incomplete data} \\"
+        r" & \multicolumn{2}{c}{Missing in TIBU} \\"
     )
     latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
     latex_lines.append(r"\hline \\[-8pt]")
@@ -1012,7 +1012,7 @@ def generate_error_by_age_figure(main_df, dqa_df):
     series = [
         ("false_neg", "red",   "False positive (Type I)"),
         ("false_pos", "green", "False negative (Type II)"),
-        ("false_miss","blue",  "False missing"),
+        ("false_miss","blue",  "Missing in TIBU"),
     ]
 
     for col, fname, xlabel in definitions:
@@ -1056,13 +1056,13 @@ def generate_error_density_figure(main_df, dqa_df):
     df["cat"] = "No error"
     df.loc[df["false_neg"]  == 1, "cat"] = "False positive (Type I)"
     df.loc[df["false_pos"]  == 1, "cat"] = "False negative (Type II)"
-    df.loc[df["false_miss"] == 1, "cat"] = "False missing"
+    df.loc[df["false_miss"] == 1, "cat"] = "Missing in TIBU"
 
     cats = [
         ("No error",                 "gray"),
         ("False positive (Type I)",  "red"),
         ("False negative (Type II)", "green"),
-        ("False missing",            "blue"),
+        ("Missing in TIBU",          "blue"),
     ]
     fig, ax = plt.subplots(figsize=(10, 4))
     for cat, color in cats:
@@ -1101,7 +1101,7 @@ def generate_error_over_time_figure(main_df, dqa_df):
     series = [
         ("false_neg", "red",   "False positive (Type I)"),
         ("false_pos", "green", "False negative (Type II)"),
-        ("false_miss","blue",  "False missing"),
+        ("false_miss","blue",  "Missing in TIBU"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1156,7 +1156,7 @@ def generate_correction_lag_table(main_df, dqa_df):
     rows = [
         (df["false_neg"]  == 1, "False positive (Type I)",  "red"),
         (df["false_pos"]  == 1, "False negative (Type II)", "green!60!black"),
-        (df["false_miss"] == 1, "False missing",            "blue"),
+        (df["false_miss"] == 1, "Missing in TIBU",           "blue"),
         ((df["false_neg"] == 0) & (df["false_pos"] == 0) & (df["false_miss"] == 0),
                                   "No error",                None),
     ]
@@ -1202,6 +1202,385 @@ def generate_correction_lag_table(main_df, dqa_df):
     with open(out_file, "w") as f:
         f.write("\n".join(latex_lines))
     print(f"Saved {out_file}")
+
+
+# =============================================================================
+# SECTION 5 — DATE-FIELD AUDIT
+# =============================================================================
+
+def _load_raw_paper_dates():
+    """Load the raw paper-registry CSV (pre-cleaning) for date-field diagnostics.
+    We need the raw strings so that unparseable and out-of-range values remain
+    visible rather than being filtered out by clean_dqa_data()."""
+    path = os.path.join(DQA_DATA_DIR, "DQA_combined.csv")
+    raw = pd.read_csv(path, dtype=str)
+    raw = raw.rename(columns={
+        "anon_scrn":             "scrn",
+        "Treatment Outcome":     "to_paper_raw",
+        "Treatment Outcome Date":"date_paper_raw",
+    })
+    return raw[["scrn", "to_paper_raw", "date_paper_raw"]]
+
+
+# Plausible-window bounds for every date field audited below (inclusive).
+# The TIBU registration window is April 2018 to December 2019; outcomes can
+# extend through late 2021 (standard DS-TB ~6m, MDR up to 18-24m).
+DATE_WINDOW_LO = pd.Timestamp("2017-01-01")
+DATE_WINDOW_HI = pd.Timestamp("2022-06-30")
+
+
+def _date_quality_row(label, series_raw, parser):
+    """Return a dict summarizing blank / unparseable / out-of-range / ok
+    counts for a single raw-string date column."""
+    n = len(series_raw)
+    blank = series_raw.isna() | (series_raw.astype(str).str.strip() == "")
+    parsed = parser(series_raw.where(~blank))
+    unparseable = (~blank) & parsed.isna()
+    oor = parsed.notna() & ((parsed < DATE_WINDOW_LO) | (parsed > DATE_WINDOW_HI))
+    ok = parsed.notna() & ~oor
+    return {
+        "label": label, "n": n,
+        "blank":        int(blank.sum()),
+        "unparseable":  int(unparseable.sum()),
+        "out_of_range": int(oor.sum()),
+        "ok":           int(ok.sum()),
+    }
+
+
+def generate_date_field_audit(main_df, dqa_df):
+    """
+    Section 5: Errors in date fields.
+
+    Produces:
+      tblSI_date_quality.tex       — blank / unparseable / out-of-range counts
+      tblSI_date_consistency.tex   — internal consistency within TIBU
+      tblSI_date_agree.tex         — TIBU vs paper outcome-date disagreement
+      fig_tibu_vs_paper_date.pdf   — TIBU outcome date vs paper outcome date
+    """
+    print("\n--- Generating date-field audit ---")
+
+    # -------------------------------------------------------------------------
+    # 5.A  Date-field quality (completeness, parseability, plausible range)
+    # -------------------------------------------------------------------------
+    # Paper side: raw strings from DQA_combined.csv (pre-cleaning).
+    raw_paper = _load_raw_paper_dates()
+    # TIBU side: the study-clinic extract. Use the un-formatted raw columns so
+    # parseability is audited rather than pre-filtered.
+    tibu_rows = []
+    paper_rows = []
+
+    paper_rows.append(_date_quality_row(
+        "Paper outcome date", raw_paper["date_paper_raw"],
+        lambda s: pd.to_datetime(s, errors="coerce", format="%d/%m/%Y")
+    ))
+
+    for col, label in [
+        ("dateofregistration",      "TIBU clinical registration date"),
+        ("dateoftreatmentstarted",  "TIBU treatment-start date"),
+        ("treatmentoutcomedate",    "TIBU outcome date"),
+    ]:
+        tibu_rows.append(_date_quality_row(
+            label, main_df[col],
+            lambda s: pd.to_datetime(s, errors="coerce")
+        ))
+
+    # Emit table
+    def _fmt_pct(n, d):
+        return f"{n:,} ({100*n/d:.1f}\\%)" if d else "--"
+
+    latex = []
+    latex.append(r"\newsavebox{\DateQualityBox}")
+    latex.append(r"\savebox{\DateQualityBox}{\scriptsize{")
+    latex.append(r"\begin{tabular}{lrrrrr}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(r"Field & $N$ & Blank & Unparseable & Out of range & Valid \\")
+    latex.append(r"\hline \\[-8pt]")
+    latex.append(r"\textit{Paper registry} (audit records) & & & & & \\")
+    for r in paper_rows:
+        latex.append(
+            rf"\quad {r['label']} & {r['n']:,} & "
+            rf"{_fmt_pct(r['blank'], r['n'])} & "
+            rf"{_fmt_pct(r['unparseable'], r['n'])} & "
+            rf"{_fmt_pct(r['out_of_range'], r['n'])} & "
+            rf"{_fmt_pct(r['ok'], r['n'])} \\"
+        )
+    latex.append(r"\rule{0pt}{10pt}\textit{TIBU} (study-clinic extract) & & & & & \\")
+    for r in tibu_rows:
+        latex.append(
+            rf"\quad {r['label']} & {r['n']:,} & "
+            rf"{_fmt_pct(r['blank'], r['n'])} & "
+            rf"{_fmt_pct(r['unparseable'], r['n'])} & "
+            rf"{_fmt_pct(r['out_of_range'], r['n'])} & "
+            rf"{_fmt_pct(r['ok'], r['n'])} \\"
+        )
+    latex.append(r"\hline\hline")
+    latex.append(r"\end{tabular}}}")
+    latex.append(r"\begin{minipage}{\wd\DateQualityBox}")
+    latex.append(r"\usebox{\DateQualityBox}")
+    latex.append(r"\par\vspace{4pt}\noindent")
+    latex.append(
+        rf"\scriptsize{{\textit{{Note:}} Plausible range = "
+        rf"{DATE_WINDOW_LO.strftime('%Y-%m-%d')} through "
+        rf"{DATE_WINDOW_HI.strftime('%Y-%m-%d')}. "
+        rf"``Unparseable'' values are nonblank strings that could not be parsed as a date; "
+        rf"``out of range'' are parseable dates outside the plausible window.}}"
+    )
+    latex.append(r"\end{minipage}")
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_date_quality.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
+    print(f"Saved {out_path}")
+
+    # -------------------------------------------------------------------------
+    # 5.B  Internal consistency within TIBU
+    # -------------------------------------------------------------------------
+    td = main_df.copy()
+    td["reg_dt"]   = pd.to_datetime(td["dateofregistration"],    errors="coerce")
+    td["tx_dt"]    = pd.to_datetime(td["dateoftreatmentstarted"],errors="coerce")
+    td["out_dt"]   = pd.to_datetime(td["treatmentoutcomedate"],  errors="coerce")
+    # censor implausible values so we only flag real ordering errors
+    for c in ["reg_dt", "tx_dt", "out_dt"]:
+        bad = (td[c] < DATE_WINDOW_LO) | (td[c] > DATE_WINDOW_HI)
+        td.loc[bad, c] = pd.NaT
+
+    N = len(td)
+    have_reg_tx = td["reg_dt"].notna() & td["tx_dt"].notna()
+    have_tx_out = td["tx_dt"].notna()  & td["out_dt"].notna()
+    have_reg_out= td["reg_dt"].notna() & td["out_dt"].notna()
+    dur = (td["out_dt"] - td["tx_dt"]).dt.days
+
+    checks = [
+        ("Treatment start after outcome date",
+         int(((td["tx_dt"] > td["out_dt"]) & have_tx_out).sum()),
+         int(have_tx_out.sum())),
+        ("Clinical registration after outcome date",
+         int(((td["reg_dt"] > td["out_dt"]) & have_reg_out).sum()),
+         int(have_reg_out.sum())),
+        ("Treatment duration $<$ 30 days",
+         int(((dur < 30) & dur.notna()).sum()),
+         int(dur.notna().sum())),
+        ("Treatment duration $>$ 900 days",
+         int(((dur > 900) & dur.notna()).sum()),
+         int(dur.notna().sum())),
+    ]
+
+    latex = []
+    latex.append(r"\newsavebox{\DateConsistBox}")
+    latex.append(r"\savebox{\DateConsistBox}{\scriptsize{")
+    latex.append(r"\begin{tabular}{lrr}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(r"Invariant violation & Denominator & Violations \\")
+    latex.append(r"\hline \\[-8pt]")
+    for lbl, violations, denom in checks:
+        pct = f"{100*violations/denom:.1f}\\%" if denom else "--"
+        latex.append(
+            rf"{lbl} & {denom:,} & {violations:,} ({pct}) \\"
+        )
+    latex.append(r"\hline\hline")
+    latex.append(r"\end{tabular}}}")
+    latex.append(r"\begin{minipage}{\wd\DateConsistBox}")
+    latex.append(r"\usebox{\DateConsistBox}")
+    latex.append(r"\par\vspace{4pt}\noindent")
+    latex.append(
+        rf"\scriptsize{{\textit{{Note:}} Denominator for each row is the number of "
+        rf"study-clinic records (of $N={N:,}$) with a valid (non-blank, in-range) date in "
+        rf"both fields being compared. Violations count records where the ordering invariant "
+        rf"fails.}}"
+    )
+    latex.append(r"\end{minipage}")
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_date_consistency.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
+    print(f"Saved {out_path}")
+
+    # -------------------------------------------------------------------------
+    # 5.B.triangulation  — Resolve TIBU inconsistencies via paper audit dates
+    # -------------------------------------------------------------------------
+    # For records with a TIBU internal-consistency violation, check whether the
+    # paper-registry outcome date (when available in the audit) helps identify
+    # which TIBU date field is wrong. The paper date is a second independent
+    # reading of the treatment outcome's timing; where it agrees with one of
+    # TIBU's date fields, the other is likely the one at fault.
+    mm = main_df.merge(
+        dqa_df[["scrn", "date_paper"]].drop_duplicates("scrn"),
+        on="scrn", how="left"
+    )
+    mm["reg_dt"]  = pd.to_datetime(mm["dateofregistration"],    errors="coerce")
+    mm["tx_dt"]   = pd.to_datetime(mm["dateoftreatmentstarted"],errors="coerce")
+    mm["out_dt"]  = pd.to_datetime(mm["treatmentoutcomedate"],  errors="coerce")
+    mm["pap_dt"]  = pd.to_datetime(mm["date_paper"], errors="coerce", dayfirst=True)
+    for c in ["reg_dt", "tx_dt", "out_dt", "pap_dt"]:
+        bad = (mm[c] < DATE_WINDOW_LO) | (mm[c] > DATE_WINDOW_HI)
+        mm.loc[bad, c] = pd.NaT
+
+    rows = []
+    # (i) outcome before registration
+    v = mm[(mm["out_dt"] < mm["reg_dt"]) & mm["out_dt"].notna() & mm["reg_dt"].notna()]
+    v_aud = v[v["pap_dt"].notna()]
+    paper_confirms_reg = (v_aud["pap_dt"] > v_aud["reg_dt"]).sum()
+    paper_confirms_out = ((v_aud["pap_dt"] - v_aud["out_dt"]).dt.days.abs() <= 30).sum()
+    rows.append(("Outcome date before registration", len(v), len(v_aud),
+                 paper_confirms_reg, paper_confirms_out))
+    # (ii) outcome before treatment start
+    v = mm[(mm["out_dt"] < mm["tx_dt"]) & mm["out_dt"].notna() & mm["tx_dt"].notna()]
+    v_aud = v[v["pap_dt"].notna()]
+    paper_confirms_tx  = (v_aud["pap_dt"] > v_aud["tx_dt"]).sum()
+    paper_confirms_out = ((v_aud["pap_dt"] - v_aud["out_dt"]).dt.days.abs() <= 30).sum()
+    rows.append(("Outcome date before treatment start", len(v), len(v_aud),
+                 paper_confirms_tx, paper_confirms_out))
+    # (iii) treatment duration < 30 days
+    dur = (mm["out_dt"] - mm["tx_dt"]).dt.days
+    v = mm[(dur < 30) & dur.notna()]
+    v_aud = v[v["pap_dt"].notna()]
+    paper_suggests_longer = ((v_aud["pap_dt"] - v_aud["tx_dt"]).dt.days >= 30).sum()
+    paper_confirms_short  = ((v_aud["pap_dt"] - v_aud["tx_dt"]).dt.days < 30).sum()
+    rows.append(("Treatment duration $<$ 30 days", len(v), len(v_aud),
+                 paper_suggests_longer, paper_confirms_short))
+
+    latex = []
+    latex.append(r"\newsavebox{\DateTriangleBox}")
+    latex.append(r"\savebox{\DateTriangleBox}{\scriptsize{")
+    latex.append(r"\begin{tabular}{lrrrr}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(r" & & & \multicolumn{2}{c}{Paper audit date resolves violation} \\")
+    latex.append(r"Violation & Total & In audit & TIBU outcome suspect & TIBU outcome plausible \\")
+    latex.append(r"\hline \\[-8pt]")
+    for label, total, in_audit, a, b in rows:
+        a_pct = f"{100*a/in_audit:.0f}\\%" if in_audit else "--"
+        b_pct = f"{100*b/in_audit:.0f}\\%" if in_audit else "--"
+        latex.append(
+            rf"{label} & {total:,} & {in_audit:,} & {a} ({a_pct}) & {b} ({b_pct}) \\"
+        )
+    latex.append(r"\hline\hline")
+    latex.append(r"\end{tabular}}}")
+    latex.append(r"\begin{minipage}{\wd\DateTriangleBox}")
+    latex.append(r"\usebox{\DateTriangleBox}")
+    latex.append(r"\par\vspace{4pt}\noindent")
+    latex.append(
+        r"\scriptsize{\textit{Note:} For each TIBU internal-consistency violation, "
+        r"``In audit'' counts records in the DQA-matched subset (with a paper outcome date). "
+        r"The two rightmost columns apply a heuristic: we call the TIBU outcome "
+        r"\emph{suspect} when the paper date is consistent with the TIBU registration/treatment-start "
+        r"timeline (paper outcome clearly later), and \emph{plausible} when the paper date is "
+        r"within 30 days of the TIBU outcome date (confirming the outcome really did happen early). "
+        r"Neither column is mutually exclusive; some records are classified by both heuristics, "
+        r"or by neither.}"
+    )
+    latex.append(r"\end{minipage}")
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_date_triangulation.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
+    print(f"Saved {out_path}")
+
+    # -------------------------------------------------------------------------
+    # 5.C  TIBU vs paper outcome-date disagreement (on the DQA-matched sample)
+    # -------------------------------------------------------------------------
+    df = _build_error_df(main_df, dqa_df)
+    pair = df[df["tibu_date"].notna() & df["paper_date"].notna()].copy()
+    pair["delta"] = (pair["tibu_date"] - pair["paper_date"]).dt.days
+
+    # Bucket |delta|
+    bins  = [-1, 7, 30, 90, 180, 10**6]
+    labels= [r"$\leq$ 7 days", "8--30 days", "31--90 days", "91--180 days", "$>$180 days"]
+    pair["bucket"] = pd.cut(pair["delta"].abs(), bins=bins, labels=labels, right=True)
+
+    # tex_color is a LaTeX color spec; mpl_color is the matplotlib equivalent.
+    categories = [
+        ("No error",                (pair["false_neg"]==0)&(pair["false_pos"]==0)&(pair["false_miss"]==0), "black",           "black"),
+        ("Type I (false positive)", (pair["false_neg"]==1), "red",             "red"),
+        ("Type II (false negative)",(pair["false_pos"]==1), "green!60!black",  "darkgreen"),
+        # false_miss records have no tibu_date, so are absent from this table.
+    ]
+
+    latex = []
+    latex.append(r"\newsavebox{\DateAgreeBox}")
+    latex.append(r"\savebox{\DateAgreeBox}{\scriptsize{")
+    latex.append(r"\begin{tabular}{l|r|rrrrr|rr}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(
+        r" & & \multicolumn{5}{c|}{$|$TIBU $-$ paper$|$ (days)} & \multicolumn{2}{c}{TIBU date is} \\"
+    )
+    latex.append(
+        rf"Category & $N$ & {' & '.join(labels)} & Earlier & Later \\"
+    )
+    latex.append(r"\hline \\[-8pt]")
+    for name, mask, tex_color, _ in categories:
+        sub = pair[mask]
+        n = len(sub)
+        cells = []
+        for lbl in labels:
+            c = int((sub["bucket"] == lbl).sum())
+            cells.append(f"{c} ({100*c/n:.1f}\\%)" if n else "--")
+        earlier = int((sub["delta"] < 0).sum())
+        later   = int((sub["delta"] > 0).sum())
+        e_cell  = f"{earlier} ({100*earlier/n:.1f}\\%)" if n else "--"
+        l_cell  = f"{later} ({100*later/n:.1f}\\%)" if n else "--"
+        colored = rf"\textcolor{{{tex_color}}}{{{name}}}"
+        latex.append(
+            rf"{colored} & {n:,} & {' & '.join(cells)} & {e_cell} & {l_cell} \\"
+        )
+    latex.append(r"\hline\hline")
+    latex.append(r"\end{tabular}}}")
+    latex.append(r"\begin{minipage}{\wd\DateAgreeBox}")
+    latex.append(r"\usebox{\DateAgreeBox}")
+    latex.append(r"\par\vspace{4pt}\noindent")
+    latex.append(
+        r"\scriptsize{\textit{Note:} Denominator is records where both the TIBU and paper "
+        r"outcome dates are non-blank and parseable. Missing-in-TIBU records are excluded "
+        r"(TIBU date is blank by construction). ``TIBU earlier'' and ``TIBU later'' together "
+        r"sum to $<$ 100\% because some records agree exactly.}"
+    )
+    latex.append(r"\end{minipage}")
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_date_agree.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
+    print(f"Saved {out_path}")
+
+    # -------------------------------------------------------------------------
+    # 5.D  Figure: TIBU outcome date vs paper outcome date, by error category
+    # -------------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(7, 6))
+    # Restrict axes to the study window (clips pre-2018 out-of-range outliers).
+    ax_lo = pd.Timestamp("2018-01-01")
+    ax_hi = pd.Timestamp("2022-01-01")
+    # Plot no-error as faint grey background so the error points pop on top.
+    ne_mask = (pair["false_neg"]==0) & (pair["false_pos"]==0) & (pair["false_miss"]==0)
+    ne = pair[ne_mask]
+    ax.scatter(ne["paper_date"], ne["tibu_date"],
+               s=8, alpha=0.18, color="0.55",
+               label=f"No error (N={len(ne)})")
+    # Plot errors prominently on top with larger, edged markers.
+    for name, mask, mpl_color, marker in [
+        ("Type I (false positive)",  pair["false_neg"]==1, "#d62728", "o"),
+        ("Type II (false negative)", pair["false_pos"]==1, "#2ca02c", "o"),
+    ]:
+        sub = pair[mask]
+        ax.scatter(sub["paper_date"], sub["tibu_date"],
+                   s=55, alpha=0.85, color=mpl_color, marker=marker,
+                   edgecolor="black", linewidth=0.4,
+                   label=f"{name} (N={len(sub)})", zorder=3)
+    # y=x and year-offset reference lines (diagonals)
+    ax.plot([ax_lo, ax_hi], [ax_lo, ax_hi], "--", color="gray", lw=0.8, label="$y = x$")
+    for yrs in (1, 2, -1):
+        off = pd.Timedelta(days=365*yrs)
+        ax.plot([ax_lo, ax_hi], [ax_lo + off, ax_hi + off],
+                ":", color="gray", lw=0.5, alpha=0.6,
+                label=("$y = x \\pm $1--2 yr" if yrs == 1 else None))
+    ax.set_xlim(ax_lo, ax_hi)
+    ax.set_ylim(ax_lo, ax_hi)
+    ax.set_xlabel("Paper outcome date")
+    ax.set_ylabel("TIBU outcome date")
+    ax.set_title("TIBU vs paper outcome date (matched records)")
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.yaxis.set_major_locator(mdates.YearLocator())
+    ax.yaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
+    plt.tight_layout()
+    out_path = os.path.join(OUTPUT_DIR, "fig_tibu_vs_paper_date.pdf")
+    plt.savefig(out_path)
+    plt.close()
+    print(f"Saved {out_path}")
 
 
 def main():
@@ -1250,6 +1629,9 @@ def main():
     generate_error_by_age_figure(main_df, dqa_df_cleaned)
     generate_error_density_figure(main_df, dqa_df_cleaned)
     generate_correction_lag_table(main_df, dqa_df_cleaned)
+
+    # Section 5 — date-field audit
+    generate_date_field_audit(main_df, dqa_df_cleaned)
 
     print("\nAll DQA outputs generated successfully.")
 

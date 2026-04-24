@@ -10,15 +10,16 @@ Scope: 119,653 TIBU records (registered April 2018 – December 2019; outcomes t
 
 ## Pipeline
 
-Single-command pipeline: `python analysis_dqa.py` reads CSVs in `newdata/`, writes LaTeX table fragments and PDF figures to `output/`, then `main.tex` at the repo root `\input`s those fragments.
+Single-command pipeline: `python analysis_dqa.py` reads CSVs in `newdata/`, writes LaTeX table fragments and PDF figures to `output/`, then `tibu_dqa.tex` at the repo root `\input`s those fragments.
 
 ```bash
-python analysis_dqa.py                     # regenerate all tables + figures
-cp main.tex output/ && cd output \
-  && pdflatex main.tex && pdflatex main.tex   # build the SI PDF (run twice for refs)
+python analysis_dqa.py                             # regenerate all tables + figures
+cp tibu_dqa.tex output/ && cd output \
+  && pdflatex tibu_dqa.tex && pdflatex tibu_dqa.tex  # build PDF (run twice for refs/toc)
+cp output/tibu_dqa.pdf tibu_dqa.pdf                # promote to canonical artifact
 ```
 
-The LaTeX fragments are written to `output/` and `main.tex` uses unqualified `\input{tblSI_...}` paths, so the build currently runs inside `output/`. The dated PDF at the repo root (e.g. `20260423.pdf`) is the archived result.
+The LaTeX fragments are written to `output/` and `tibu_dqa.tex` uses unqualified `\input{tblSI_...}` paths, so the build runs inside `output/`. The single canonical build artifact is `tibu_dqa.pdf` at the repo root; it is tracked in git and overwritten on every build. The document was renamed from `main.*` to `tibu_dqa.*` in April 2026 to reflect that the audit is TIBU-specific and only contextually associated with the Keheala trial. Older dated PDFs (e.g. `20260423.pdf`) were removed at the same time — use `git log -- tibu_dqa.pdf` (or the earlier `main.pdf`) to recover historical builds.
 
 ## Architecture
 

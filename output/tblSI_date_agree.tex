@@ -1,0 +1,17 @@
+\newsavebox{\DateAgreeBox}
+\savebox{\DateAgreeBox}{\scriptsize{
+\begin{tabular}{l|r|rrrrr|rr}
+\hline\hline \\[-8pt]
+ & & \multicolumn{5}{c|}{$|$TIBU $-$ paper$|$ (days)} & \multicolumn{2}{c}{TIBU date is} \\
+Category & $N$ & $\leq$ 7 days & 8--30 days & 31--90 days & 91--180 days & $>$180 days & Earlier & Later \\
+\hline \\[-8pt]
+\textcolor{black}{No error} & 2,828 & 2200 (77.8\%) & 208 (7.4\%) & 133 (4.7\%) & 52 (1.8\%) & 235 (8.3\%) & 375 (13.3\%) & 459 (16.2\%) \\
+\textcolor{red}{Type I (false positive)} & 24 & 3 (12.5\%) & 3 (12.5\%) & 5 (20.8\%) & 10 (41.7\%) & 3 (12.5\%) & 5 (20.8\%) & 16 (66.7\%) \\
+\textcolor{green!60!black}{Type II (false negative)} & 19 & 2 (10.5\%) & 3 (15.8\%) & 6 (31.6\%) & 5 (26.3\%) & 3 (15.8\%) & 14 (73.7\%) & 4 (21.1\%) \\
+\hline\hline
+\end{tabular}}}
+\begin{minipage}{\wd\DateAgreeBox}
+\usebox{\DateAgreeBox}
+\par\vspace{4pt}\noindent
+\scriptsize{\textit{Note:} Denominator is records where both the TIBU and paper outcome dates are non-blank and parseable. Missing-in-TIBU records are excluded (TIBU date is blank by construction). ``TIBU earlier'' and ``TIBU later'' together sum to $<$ 100\% because some records agree exactly.}
+\end{minipage}
