@@ -58,14 +58,13 @@ The classification is central; several details are non-obvious and easy to break
 
 An earlier iteration of the code (and its prose) inverted the false-missing semantics — the variable was computed as TIBU-has-outcome-paper-blank. That produced tables whose "Incomplete data" column was the opposite of the Table 2 crosstab legend. The current implementation matches the crosstab legend: false missing = missing from the digital side.
 
-### Semantic variable naming (watch out)
+### Error type variable names
 
-In `_build_error_df`, the *variable names* are swapped relative to what they semantically mean:
+`_build_error_df` produces three columns that map directly to the Table 2 convention (red = Type I):
 
-- `false_neg` stores the count of **Type I** events (TIBU success vs paper failure — a digital false *positive*).
-- `false_pos` stores the count of **Type II** events (TIBU failure vs paper success — a digital false *negative*).
-
-Every function that renders "false positive" or "false negative" labels must remap so the label-to-variable mapping matches the crosstab (Table 2) convention: **red = Type I = false positive = `false_neg` variable**. `generate_error_by_clinic`, `generate_error_by_patient_characteristics`, and `generate_error_table` each have a local `stats`/`error_rates` helper that does this rebinding explicitly. The new age and density figures build the same mapping into their `series` list. If you add a new function that reports Type I / Type II, do the rebinding there too and cite the same comment.
+- `type1` — Type I events (TIBU success, paper failure — digital false positive).
+- `type2` — Type II events (TIBU failure, paper success — digital false negative).
+- `missing_tibu` — TIBU blank, paper has a classifiable outcome.
 
 ### "Age of record" and the TIBU snapshot
 

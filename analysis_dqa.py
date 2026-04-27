@@ -125,7 +125,15 @@ def clean_dqa_data():
     df = df.rename(columns={
         "treatmentoutcome": "to_paper",
         "treatmentoutcomedate": "date_paper"
-    })    
+    })
+
+    # Parse and censor paper outcome dates. dayfirst=True handles DD/MM/YYYY
+    # format used in the audit sheets. Typos like "0202-03-30" and future dates
+    # like "2029-12-04" are nulled out; study timeline is 2018–2021.
+    df["date_paper"] = pd.to_datetime(df["date_paper"], dayfirst=True, errors="coerce")
+    bad_year = (df["date_paper"].dt.year < 2010) | (df["date_paper"].dt.year > 2025)
+    df.loc[bad_year, "date_paper"] = pd.NaT
+
     return df
 
 def load_study_data():
@@ -134,12 +142,7 @@ def load_study_data():
         df = df.rename(columns={"anon_scrn": "scrn"})
     df["treatmentoutcome"] = df["treatmentoutcome"].replace("MT4", "TO")
 
-    tibu = pd.read_csv(TIBU_DEIDENTIFIED, dtype=str)[["anon_scrn_tibu", "source_file"]]
-    tibu = tibu.rename(columns={"anon_scrn_tibu": "scrn", "source_file": "tibu_source_file"})
-    tibu["scrn"] = tibu["scrn"].astype(str)
     df["scrn"] = df["scrn"].astype(str)
-
-    df = df.merge(tibu, on="scrn", how="left")
     return df
 
 # -----------------------------------------------------------------------------
@@ -637,20 +640,20 @@ def generate_error_by_clinic(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban", "tibu_patients", "province"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left"
     )
-    df["mismatch"] = (df["false_neg"] | df["false_pos"] | df["false_miss"]).astype(int)
+    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
 
     # --- CSV: per-clinic stats ---
     clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
     clinic_stats = (
         df.groupby("clinic_id_num")
         .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
-             false_neg_rate=("false_neg","mean"), false_pos_rate=("false_pos","mean"),
-             false_miss_rate=("false_miss","mean"))
+             type1_rate=("type1","mean"), type2_rate=("type2","mean"),
+             missing_tibu_rate=("missing_tibu","mean"))
         .reset_index()
         .rename(columns={"clinic_id_num": "clinic_id"})
     )
     clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
-    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","false_neg_rate","false_pos_rate","false_miss_rate"]]
+    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate"]]
 
     clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
     filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
@@ -664,7 +667,7 @@ def generate_error_by_clinic(main_df, dqa_df):
     print(filtered.head(10))
 
     # --- Tex: by urban/rural, province, and clinic size ---
-    median_size = df["tibu_patients"].median()
+    median_size = df.drop_duplicates("clinic_id_num")["tibu_patients"].median()
     df["large_clinic"] = (df["tibu_patients"] >= median_size).astype(float)
 
     total_n = len(df)
@@ -672,10 +675,8 @@ def generate_error_by_clinic(main_df, dqa_df):
     def stats(sub):
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        # `false_neg` and `false_pos` in _build_error_df are semantically swapped.
-        # Rebind so fp_* = false positive (Type I) and fn_* = false negative (Type II).
-        fp_n, fn_n, fm_n = int(sub["false_neg"].sum()), int(sub["false_pos"].sum()), int(sub["false_miss"].sum())
-        fp_p, fn_p, fm_p = sub["false_neg"].mean()*100, sub["false_pos"].mean()*100, sub["false_miss"].mean()*100
+        fp_n, fn_n, fm_n = int(sub["type1"].sum()), int(sub["type2"].sum()), int(sub["missing_tibu"].sum())
+        fp_p, fn_p, fm_p = sub["type1"].mean()*100, sub["type2"].mean()*100, sub["missing_tibu"].mean()*100
         return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
 
     def fmt(count, pct):
@@ -750,13 +751,13 @@ def generate_clinic_characteristics_table(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left"
     )
-    df["mismatch"] = (df["false_neg"] | df["false_pos"] | df["false_miss"]).astype(int)
+    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
 
     def row_stats(sub):
         n = len(sub)
         mismatch = sub["mismatch"].mean() * 100
-        type1    = sub["false_neg"].mean() * 100
-        type2    = sub["false_pos"].mean() * 100
+        type1    = sub["type1"].mean() * 100
+        type2    = sub["type2"].mean() * 100
         return n, mismatch, type1, type2
 
     all_s   = row_stats(df)
@@ -819,7 +820,7 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
     print("\n--- Generating Error by Patient Characteristics (Fig 4) ---")
 
     df = _build_error_df(main_df, dqa_df)
-    df["mismatch"] = (df["false_neg"] | df["false_pos"] | df["false_miss"]).astype(int)
+    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
 
     df["age_group"] = pd.cut(
         pd.to_numeric(df["age_in_years"], errors="coerce"),
@@ -834,14 +835,12 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
             return 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        # `false_neg` and `false_pos` in _build_error_df are semantically swapped.
-        # Rebind so fp_* = false positive (Type I) and fn_* = false negative (Type II).
-        fp_n = int(sub["false_neg"].sum())
-        fp_p = sub["false_neg"].mean() * 100
-        fn_n = int(sub["false_pos"].sum())
-        fn_p = sub["false_pos"].mean() * 100
-        fm_n = int(sub["false_miss"].sum())
-        fm_p = sub["false_miss"].mean() * 100
+        fp_n = int(sub["type1"].sum())
+        fp_p = sub["type1"].mean() * 100
+        fn_n = int(sub["type2"].sum())
+        fn_p = sub["type2"].mean() * 100
+        fm_n = int(sub["missing_tibu"].sum())
+        fm_p = sub["missing_tibu"].mean() * 100
         return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
 
     def fmt(count, pct):
@@ -904,11 +903,10 @@ def _build_error_df(main_df, dqa_df):
     truth). Records where paper is blank are dropped as uncheckable; transfer-out
     (TO, which includes the recoded MT4) is dropped as not auditable.
 
-    Variables (retained names from earlier code for downstream compatibility,
-    though they are semantically swapped):
-      false_neg   → Type I:  TIBU success, paper failure (digital false positive)
-      false_pos   → Type II: TIBU failure, paper success (digital false negative)
-      false_miss  → TIBU blank, paper has outcome       (digital missing)
+    Variables:
+      type1        → Type I:  TIBU success, paper failure (digital false positive)
+      type2        → Type II: TIBU failure, paper success (digital false negative)
+      missing_tibu → TIBU blank, paper has outcome        (digital missing)
     """
     merged = pd.merge(main_df, dqa_df[["scrn", "to_paper", "date_paper"]], on="scrn", how="inner")
 
@@ -917,7 +915,7 @@ def _build_error_df(main_df, dqa_df):
 
     # NC ("not completed") is a placeholder/interim code, not a medical outcome,
     # so we treat it as missing rather than bad — records with TIBU = NC roll
-    # into false_miss when paper has a classifiable outcome.
+    # into missing_tibu when paper has a classifiable outcome.
     bad  = ["D", "F", "LTFU"]
     good = ["C", "TC"]
     merged["uo_tibu"] = np.nan
@@ -929,15 +927,16 @@ def _build_error_df(main_df, dqa_df):
 
     # New denominator: paper must be classifiable (ground truth present).
     df = merged.dropna(subset=["uo_paper"]).copy()
-    df["false_neg"]  = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)  # Type I
-    df["false_pos"]  = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)  # Type II
-    df["false_miss"] = df["uo_tibu"].isna().astype(int)                            # TIBU blank
+    df["type1"]  = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)  # Type I
+    df["type2"]  = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)  # Type II
+    df["missing_tibu"] = df["uo_tibu"].isna().astype(int)                            # TIBU blank
 
-    # Parse dates; censor sentinels and absurd values (study timeline is 2018-2021)
+    # Parse TIBU dates; censor absurd values (study timeline is 2018-2021).
+    # paper_date is already parsed and censored by clean_dqa_data.
     df["tibu_date"]  = pd.to_datetime(df["treatmentoutcomedate_formatted"], errors="coerce")
-    df["paper_date"] = pd.to_datetime(df["date_paper"], dayfirst=True, errors="coerce")
+    df["paper_date"] = df["date_paper"]
     df["reg_date"]   = pd.to_datetime(df["dateregistered_formatted"], errors="coerce")
-    for col in ["tibu_date", "paper_date", "reg_date"]:
+    for col in ["tibu_date", "reg_date"]:
         bad_year = (df[col].dt.year < 2010) | (df[col].dt.year > 2025)
         df.loc[bad_year, col] = pd.NaT
 
@@ -992,7 +991,6 @@ def generate_error_by_age_figure(main_df, dqa_df):
     download snapshot:
       age_reg: days since patient registration  (record age at snapshot)
       age_out: days since TIBU outcome date     (reporting lag)
-    Download date is inferred per source_file as max(outcome_date) in that file.
     Shaded bands = percentile bootstrap 95% CI (500 resamples).
     Saves fig_error_by_age_reg.pdf and fig_error_by_age_out.pdf.
     """
@@ -1006,13 +1004,10 @@ def generate_error_by_age_figure(main_df, dqa_df):
          "Reporting lag (days from TIBU outcome date to snapshot)"),
     ]
 
-    # NB: _build_error_df's variable names are semantically swapped — `false_neg`
-    # actually stores Type I (TIBU false positive) events, and `false_pos` stores
-    # Type II. We follow the crosstab (Table 2) convention: red = Type I.
     series = [
-        ("false_neg", "red",   "False positive (Type I)"),
-        ("false_pos", "green", "False negative (Type II)"),
-        ("false_miss","blue",  "Missing in TIBU"),
+        ("type1", "red",   "False positive (Type I)"),
+        ("type2", "green", "False negative (Type II)"),
+        ("missing_tibu","blue",  "Missing in TIBU"),
     ]
 
     for col, fname, xlabel in definitions:
@@ -1052,11 +1047,10 @@ def generate_error_density_figure(main_df, dqa_df):
     """
     print("\n--- Generating error density figure ---")
     df = _build_error_df(main_df, dqa_df).dropna(subset=["age_out"]).copy()
-    # See note in generate_error_by_age_figure: false_neg stores Type I, false_pos stores Type II.
     df["cat"] = "No error"
-    df.loc[df["false_neg"]  == 1, "cat"] = "False positive (Type I)"
-    df.loc[df["false_pos"]  == 1, "cat"] = "False negative (Type II)"
-    df.loc[df["false_miss"] == 1, "cat"] = "Missing in TIBU"
+    df.loc[df["type1"]  == 1, "cat"] = "False positive (Type I)"
+    df.loc[df["type2"]  == 1, "cat"] = "False negative (Type II)"
+    df.loc[df["missing_tibu"] == 1, "cat"] = "Missing in TIBU"
 
     cats = [
         ("No error",                 "gray"),
@@ -1097,11 +1091,10 @@ def generate_error_over_time_figure(main_df, dqa_df):
     df = _build_error_df(main_df, dqa_df).dropna(subset=["outcome_date"]).copy()
     df["t_days"] = df["outcome_date"].map(lambda d: d.toordinal())
 
-    # See note in generate_error_by_age_figure: false_neg stores Type I, false_pos Type II.
     series = [
-        ("false_neg", "red",   "False positive (Type I)"),
-        ("false_pos", "green", "False negative (Type II)"),
-        ("false_miss","blue",  "Missing in TIBU"),
+        ("type1", "red",   "False positive (Type I)"),
+        ("type2", "green", "False negative (Type II)"),
+        ("missing_tibu","blue",  "Missing in TIBU"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1124,6 +1117,49 @@ def generate_error_over_time_figure(main_df, dqa_df):
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
     out_file = os.path.join(OUTPUT_DIR, "fig_error_over_time.pdf")
+    fig.savefig(out_file, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_file}")
+
+
+def generate_error_over_time_paper_figure(main_df, dqa_df):
+    """
+    Sensitivity check: same as generate_error_over_time_figure but uses the
+    paper-registry outcome date throughout (instead of TIBU date with paper
+    fallback). Records with no parseable paper date are dropped. Separates
+    date-driven from outcome-driven components of the COVID-era spike.
+    Saves fig_error_over_time_paper.pdf.
+    """
+    print("\n--- Generating error-over-time figure (paper dates, sensitivity) ---")
+    df = _build_error_df(main_df, dqa_df).dropna(subset=["paper_date"]).copy()
+    df["t_days"] = df["paper_date"].map(lambda d: d.toordinal())
+
+    series = [
+        ("type1",        "red",   "False positive (Type I)"),
+        ("type2",        "green", "False negative (Type II)"),
+        ("missing_tibu", "blue",  "Missing in TIBU"),
+    ]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for ecol, color, label in series:
+        res = _smoothed_curve_with_ci(df["t_days"].values, df[ecol].values, frac=0.35, n_boot=500)
+        if res is None:
+            continue
+        x_ord, mu, lo, hi = res
+        x_dates = pd.to_datetime([pd.Timestamp.fromordinal(int(x)) for x in x_ord])
+        ax.plot(x_dates, mu * 100, color=color, linewidth=1.8, label=label)
+        ax.fill_between(x_dates, lo * 100, hi * 100, color=color, alpha=0.15, linewidth=0)
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
+    ax.set_xlabel("Outcome date (paper registry)")
+    ax.set_ylabel("Error rate (%)")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
+    ax.set_ylim(bottom=0)
+    ax.legend(framealpha=0.9, handlelength=1.0, labelspacing=0.5)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    fig.tight_layout()
+    out_file = os.path.join(OUTPUT_DIR, "fig_error_over_time_paper.pdf")
     fig.savefig(out_file, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_file}")
@@ -1154,10 +1190,10 @@ def generate_correction_lag_table(main_df, dqa_df):
         return out  # [N, %, n_reg, mean_reg, med_reg, n_out, mean_out, med_out]
 
     rows = [
-        (df["false_neg"]  == 1, "False positive (Type I)",  "red"),
-        (df["false_pos"]  == 1, "False negative (Type II)", "green!60!black"),
-        (df["false_miss"] == 1, "Missing in TIBU",           "blue"),
-        ((df["false_neg"] == 0) & (df["false_pos"] == 0) & (df["false_miss"] == 0),
+        (df["type1"]  == 1, "False positive (Type I)",  "red"),
+        (df["type2"]  == 1, "False negative (Type II)", "green!60!black"),
+        (df["missing_tibu"] == 1, "Missing in TIBU",           "blue"),
+        ((df["type1"] == 0) & (df["type2"] == 0) & (df["missing_tibu"] == 0),
                                   "No error",                None),
     ]
 
@@ -1486,10 +1522,10 @@ def generate_date_field_audit(main_df, dqa_df):
 
     # tex_color is a LaTeX color spec; mpl_color is the matplotlib equivalent.
     categories = [
-        ("No error",                (pair["false_neg"]==0)&(pair["false_pos"]==0)&(pair["false_miss"]==0), "black",           "black"),
-        ("Type I (false positive)", (pair["false_neg"]==1), "red",             "red"),
-        ("Type II (false negative)",(pair["false_pos"]==1), "green!60!black",  "darkgreen"),
-        # false_miss records have no tibu_date, so are absent from this table.
+        ("No error",                (pair["type1"]==0)&(pair["type2"]==0)&(pair["missing_tibu"]==0), "black",           "black"),
+        ("Type I (false positive)", (pair["type1"]==1), "red",             "red"),
+        ("Type II (false negative)",(pair["type2"]==1), "green!60!black",  "darkgreen"),
+        # missing_tibu records have no tibu_date, so are absent from this table.
     ]
 
     latex = []
@@ -1544,15 +1580,15 @@ def generate_date_field_audit(main_df, dqa_df):
     ax_lo = pd.Timestamp("2018-01-01")
     ax_hi = pd.Timestamp("2022-01-01")
     # Plot no-error as faint grey background so the error points pop on top.
-    ne_mask = (pair["false_neg"]==0) & (pair["false_pos"]==0) & (pair["false_miss"]==0)
+    ne_mask = (pair["type1"]==0) & (pair["type2"]==0) & (pair["missing_tibu"]==0)
     ne = pair[ne_mask]
     ax.scatter(ne["paper_date"], ne["tibu_date"],
                s=8, alpha=0.18, color="0.55",
                label=f"No error (N={len(ne)})")
     # Plot errors prominently on top with larger, edged markers.
     for name, mask, mpl_color, marker in [
-        ("Type I (false positive)",  pair["false_neg"]==1, "#d62728", "o"),
-        ("Type II (false negative)", pair["false_pos"]==1, "#2ca02c", "o"),
+        ("Type I (false positive)",  pair["type1"]==1, "#d62728", "o"),
+        ("Type II (false negative)", pair["type2"]==1, "#2ca02c", "o"),
     ]:
         sub = pair[mask]
         ax.scatter(sub["paper_date"], sub["tibu_date"],
@@ -1626,6 +1662,7 @@ def main():
 
     # Figures and the record-age table (Figs 2–5, Table 5)
     generate_error_over_time_figure(main_df, dqa_df_cleaned)
+    generate_error_over_time_paper_figure(main_df, dqa_df_cleaned)
     generate_error_by_age_figure(main_df, dqa_df_cleaned)
     generate_error_density_figure(main_df, dqa_df_cleaned)
     generate_correction_lag_table(main_df, dqa_df_cleaned)

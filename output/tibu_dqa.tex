@@ -156,6 +156,15 @@ The TIBU dataset used for these analyses reflects a single final extract. The la
     \label{fig:over_time}
 \end{figure}
 
+\noindent \textit{Sensitivity check.} Figure~\ref{fig:over_time_paper} replays the same analysis using the paper-registry outcome date throughout (rather than TIBU date with paper fallback for missing-in-TIBU records). Records with no parseable paper date are excluded ($n = $ \textasciitilde{}13\%). The COVID-era spike in missing-in-TIBU remains clearly visible, confirming that it is driven by when outcomes actually occurred (as captured on paper), not by when TIBU happened to record them.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_over_time_paper.pdf}
+    \caption{Sensitivity check: DQA error rates over time using paper-registry outcome dates throughout. Records without a parseable paper date are excluded. Compare with Figure~\ref{fig:over_time}.}
+    \label{fig:over_time_paper}
+\end{figure}
+
 \noindent The dominant feature of the figure is a pronounced peak in the missing-in-TIBU rate (to roughly 15\%) for records with outcome dates in 2020 Q1--Q2, coinciding with the onset of the COVID-19 pandemic response in Kenya. Of the 116 missing-in-TIBU records in the classifiable sample, 63 fall in these two quarters, and 50 are concentrated at just two clinics whose overall missing-in-TIBU rates (12.7\% and 15.4\%) are an order of magnitude above the study-wide rate of 3.8\%. At these clinics, paper-registry entries continued through the pandemic but TIBU outcomes were largely not recorded. \texttt{NC} is a TIBU interim code denoting that treatment is still in progress; treating it as equivalent to blank (rather than as a medical failure) rolls the affected records into the missing-in-TIBU category, which accounts for 76 of the 116 (the remaining 40 have TIBU entirely blank). Type~I and Type~II error rates are low and roughly flat across the study period.
 
 \iffalse  % --- §4.6 Supplementary record-age views commented out (Apr 2026) ---
