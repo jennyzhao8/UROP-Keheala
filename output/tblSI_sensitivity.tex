@@ -1,0 +1,17 @@
+\newsavebox{\SensBox}
+\savebox{\SensBox}{\scriptsize{
+\begin{tabular}{l|rr|rr}
+\hline\hline \\[-8pt]
+ & \multicolumn{2}{c|}{Headline} & \multicolumn{2}{c}{Date-gated} \\
+Error type & $N$ & Rate & $N$ & Rate \\
+\hline \\[-8pt]
+\textcolor{red}{False positive} & 31 & 1.05\% & 15 & 0.51\% \\
+\textcolor{green!60!black}{False negative} & 21 & 0.71\% & 17 & 0.58\% \\
+\textcolor{blue}{Missing in TIBU} & 112 & 3.79\% & 112 & 3.79\% \\
+\hline\hline
+\end{tabular}}}
+\begin{minipage}{\wd\SensBox}
+\usebox{\SensBox}
+\par\vspace{4pt}\noindent
+\scriptsize{\textit{Note:} Denominator is the $N = 2,953$ classifiable matched records. Under the date-gated definition, a TIBU--paper outcome disagreement is counted as an error only when the paper outcome date is strictly later than the TIBU outcome date; otherwise the record is treated as concordant on the assumption that TIBU reflects a post-audit paper update. The rule cannot be applied to records with an unparseable date on either side ($n = 8$ false-positive and $n = 3$ false-negative records), and such records preserve their headline classification. Missing-in-TIBU is unaffected since TIBU is blank by construction.}
+\end{minipage}

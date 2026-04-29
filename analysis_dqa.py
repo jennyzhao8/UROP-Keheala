@@ -327,8 +327,8 @@ def generate_crosstab_table(main_df, dqa_df):
     latex_lines.append(r"\par\vspace{4pt}\noindent")
     latex_lines.append(
         r"\textit{Note:} Percentages are row shares. \\"
-        r"\textcolor{red}{Red} = Type I error (TIBU: success; paper: failure). \\"
-        r"\textcolor{green!60!black}{Green} = Type II error (TIBU: failure; paper: success). \\"
+        r"\textcolor{red}{Red} = False positive (TIBU: success; paper: failure). \\"
+        r"\textcolor{green!60!black}{Green} = False negative (TIBU: failure; paper: success). \\"
         r"\textcolor{blue}{Blue} = Missing in TIBU (TIBU: no outcome; paper: outcome present)."
     )
     latex_lines.append(r"\end{minipage}")
@@ -623,13 +623,17 @@ def generate_outcome_corrections(main_df, dqa_df):
     print(f"Saved outcome_corrections.csv")
 
 
-def generate_error_by_clinic(main_df, dqa_df):
+def generate_error_by_clinic(main_df, dqa_df, gated=False):
     """
     Fig 3: Where are errors most severe?
     Saves error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv,
-    and tblSI_error_by_clinic_char.tex
+    and tblSI_error_by_clinic_char.tex (or _gated.tex when gated=True).
     """
-    print("\n--- Generating Error by Clinic (Fig 3) ---")
+    suffix = "_gated" if gated else ""
+    fp_col = "type1_gated"        if gated else "type1"
+    fn_col = "type2_gated"        if gated else "type2"
+    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    print(f"\n--- Generating Error by Clinic (Fig 3{suffix}) ---")
 
     clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
     clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
@@ -640,31 +644,32 @@ def generate_error_by_clinic(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban", "tibu_patients", "province"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left"
     )
-    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
 
-    # --- CSV: per-clinic stats ---
-    clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
-    clinic_stats = (
-        df.groupby("clinic_id_num")
-        .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
-             type1_rate=("type1","mean"), type2_rate=("type2","mean"),
-             missing_tibu_rate=("missing_tibu","mean"))
-        .reset_index()
-        .rename(columns={"clinic_id_num": "clinic_id"})
-    )
-    clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
-    clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate"]]
+    # --- CSV: per-clinic stats (only for the headline run) ---
+    if not gated:
+        clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
+        clinic_stats = (
+            df.groupby("clinic_id_num")
+            .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
+                 type1_rate=(fp_col,"mean"), type2_rate=(fn_col,"mean"),
+                 missing_tibu_rate=(fm_col,"mean"))
+            .reset_index()
+            .rename(columns={"clinic_id_num": "clinic_id"})
+        )
+        clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
+        clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate"]]
 
-    clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
-    filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
-    filtered.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n10.csv"), index=False)
+        clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
+        filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
+        filtered.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n10.csv"), index=False)
 
-    total_patients = clinic_stats["n_study"].sum()
-    filtered_patients = filtered["n_study"].sum()
-    print(f"Clinics total: {clinic_stats.shape[0]}, with n>=10: {filtered.shape[0]}")
-    print(f"Matched patients: {total_patients}, in n>=10 clinics: {filtered_patients} ({filtered_patients/total_patients:.1%})")
-    print("\nTop 10 clinics by mismatch rate (n>=10):")
-    print(filtered.head(10))
+        total_patients = clinic_stats["n_study"].sum()
+        filtered_patients = filtered["n_study"].sum()
+        print(f"Clinics total: {clinic_stats.shape[0]}, with n>=10: {filtered.shape[0]}")
+        print(f"Matched patients: {total_patients}, in n>=10 clinics: {filtered_patients} ({filtered_patients/total_patients:.1%})")
+        print("\nTop 10 clinics by mismatch rate (n>=10):")
+        print(filtered.head(10))
 
     # --- Tex: by urban/rural, province, and clinic size ---
     median_size = df.drop_duplicates("clinic_id_num")["tibu_patients"].median()
@@ -675,16 +680,17 @@ def generate_error_by_clinic(main_df, dqa_df):
     def stats(sub):
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        fp_n, fn_n, fm_n = int(sub["type1"].sum()), int(sub["type2"].sum()), int(sub["missing_tibu"].sum())
-        fp_p, fn_p, fm_p = sub["type1"].mean()*100, sub["type2"].mean()*100, sub["missing_tibu"].mean()*100
+        fp_n, fn_n, fm_n = int(sub[fp_col].sum()), int(sub[fn_col].sum()), int(sub[fm_col].sum())
+        fp_p, fn_p, fm_p = sub[fp_col].mean()*100, sub[fn_col].mean()*100, sub[fm_col].mean()*100
         return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
 
     def fmt(count, pct):
         return rf"{count:,} ({pct:.1f}\%)"
 
     latex_lines = []
-    latex_lines.append(r"\newsavebox{\ClinicErrBox}")
-    latex_lines.append(r"\savebox{\ClinicErrBox}{\scriptsize{")
+    box = r"\ClinicErrBoxGated" if gated else r"\ClinicErrBox"
+    latex_lines.append(rf"\newsavebox{{{box}}}")
+    latex_lines.append(rf"\savebox{{{box}}}{{\scriptsize{{")
     latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
     latex_lines.append(r"\hline\hline \\[-8pt]")
     latex_lines.append(
@@ -720,8 +726,8 @@ def generate_error_by_clinic(main_df, dqa_df):
 
     latex_lines.append(r"\hline\hline")
     latex_lines.append(r"\end{tabular}}}")
-    latex_lines.append(r"\begin{minipage}{\wd\ClinicErrBox}")
-    latex_lines.append(r"\usebox{\ClinicErrBox}")
+    latex_lines.append(rf"\begin{{minipage}}{{\wd{box}}}")
+    latex_lines.append(rf"\usebox{{{box}}}")
     latex_lines.append(r"\par\vspace{4pt}\noindent")
     latex_lines.append(
         rf"\scriptsize{{\textit{{Note:}} Urban/rural classification is based on clinic records. "
@@ -730,9 +736,10 @@ def generate_error_by_clinic(main_df, dqa_df):
     )
     latex_lines.append(r"\end{minipage}")
 
-    with open(os.path.join(OUTPUT_DIR, "tblSI_error_by_clinic_char.tex"), "w") as f:
+    out_path = os.path.join(OUTPUT_DIR, f"tblSI_error_by_clinic_char{suffix}.tex")
+    with open(out_path, "w") as f:
         f.write("\n".join(latex_lines))
-    print(f"Saved error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv, tblSI_error_by_clinic_char.tex")
+    print(f"Saved {out_path}")
 
 def generate_clinic_characteristics_table(main_df, dqa_df):
     """
@@ -811,16 +818,20 @@ def generate_error_by_outcome(main_df, dqa_df):
     print("\nError rates by outcome:")
     print(outcome_stats)
 
-def generate_error_by_patient_characteristics(main_df, dqa_df):
+def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     """
     Fig 4: For whom are errors most severe?
     Error rates by patient and disease characteristics.
-    Outputs tblSI_error_by_patient_char.tex
+    Outputs tblSI_error_by_patient_char.tex (or _gated.tex when gated=True).
     """
-    print("\n--- Generating Error by Patient Characteristics (Fig 4) ---")
+    suffix = "_gated" if gated else ""
+    fp_col = "type1_gated"        if gated else "type1"
+    fn_col = "type2_gated"        if gated else "type2"
+    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    print(f"\n--- Generating Error by Patient Characteristics (Fig 4{suffix}) ---")
 
     df = _build_error_df(main_df, dqa_df)
-    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
 
     df["age_group"] = pd.cut(
         pd.to_numeric(df["age_in_years"], errors="coerce"),
@@ -835,12 +846,12 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
             return 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        fp_n = int(sub["type1"].sum())
-        fp_p = sub["type1"].mean() * 100
-        fn_n = int(sub["type2"].sum())
-        fn_p = sub["type2"].mean() * 100
-        fm_n = int(sub["missing_tibu"].sum())
-        fm_p = sub["missing_tibu"].mean() * 100
+        fp_n = int(sub[fp_col].sum())
+        fp_p = sub[fp_col].mean() * 100
+        fn_n = int(sub[fn_col].sum())
+        fn_p = sub[fn_col].mean() * 100
+        fm_n = int(sub[fm_col].sum())
+        fm_p = sub[fm_col].mean() * 100
         return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
 
     def fmt(count, pct):
@@ -889,7 +900,7 @@ def generate_error_by_patient_characteristics(main_df, dqa_df):
     latex_lines.append(r"\hline\hline")
     latex_lines.append(r"\end{tabular}}")
 
-    out_file = os.path.join(OUTPUT_DIR, "tblSI_error_by_patient_char.tex")
+    out_file = os.path.join(OUTPUT_DIR, f"tblSI_error_by_patient_char{suffix}.tex")
     with open(out_file, "w") as f:
         f.write("\n".join(latex_lines))
     print(f"Saved {out_file}")
@@ -907,6 +918,12 @@ def _build_error_df(main_df, dqa_df):
       type1        → Type I:  TIBU success, paper failure (digital false positive)
       type2        → Type II: TIBU failure, paper success (digital false negative)
       missing_tibu → TIBU blank, paper has outcome        (digital missing)
+
+    Sister variables suffixed `_gated` apply the date-direction sensitivity
+    rule: a discordant matched record is reclassified concordant when
+    paper_date < tibu_date (i.e., TIBU is the more recent reading and paper
+    plausibly reflects an interim audit-snapshot state). Records with either
+    date missing/unparseable preserve the headline classification.
     """
     merged = pd.merge(main_df, dqa_df[["scrn", "to_paper", "date_paper"]], on="scrn", how="inner")
 
@@ -939,6 +956,18 @@ def _build_error_df(main_df, dqa_df):
     for col in ["tibu_date", "reg_date"]:
         bad_year = (df[col].dt.year < 2010) | (df[col].dt.year > 2025)
         df.loc[bad_year, col] = pd.NaT
+
+    # Date-gated sensitivity classification: flip type1/type2 to concordant
+    # when paper_date < tibu_date (TIBU strictly later, so paper is plausibly
+    # the audit-snapshot state). Missing dates → preserve headline.
+    flip = (
+        (df["paper_date"] < df["tibu_date"])
+        & df["paper_date"].notna()
+        & df["tibu_date"].notna()
+    )
+    df["type1_gated"]        = (df["type1"].astype(bool) & ~flip).astype(int)
+    df["type2_gated"]        = (df["type2"].astype(bool) & ~flip).astype(int)
+    df["missing_tibu_gated"] = df["missing_tibu"]
 
     # outcome_date = TIBU's outcome date when available, else paper-registry
     # outcome date. The fallback matters for false-missing records (TIBU blank),
@@ -1078,23 +1107,27 @@ def generate_error_density_figure(main_df, dqa_df):
     print(f"Saved {out_file}")
 
 
-def generate_error_over_time_figure(main_df, dqa_df):
+def generate_error_over_time_figure(main_df, dqa_df, gated=False):
     """
-    Smoothed (lowess) curves of false-positive (Type I), false-negative (Type II),
-    and false-missing rates against outcome date. Shaded bands = percentile
-    bootstrap 95% CI (500 resamples). Saves fig_error_over_time.pdf.
+    Smoothed (lowess) curves of false-positive, false-negative, and missing-in-TIBU
+    rates against outcome date. Shaded bands = percentile bootstrap 95% CI
+    (500 resamples). Saves fig_error_over_time.pdf (or _gated.pdf when gated=True).
 
     Outcome date is TIBU's outcome date when available, otherwise the paper
-    registry's outcome date (used for false-missing records, where TIBU is blank).
+    registry's outcome date (used for missing-in-TIBU records, where TIBU is blank).
     """
-    print("\n--- Generating error-over-time figure (smoothed) ---")
+    suffix = "_gated" if gated else ""
+    fp_col = "type1_gated"        if gated else "type1"
+    fn_col = "type2_gated"        if gated else "type2"
+    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    print(f"\n--- Generating error-over-time figure (smoothed{suffix}) ---")
     df = _build_error_df(main_df, dqa_df).dropna(subset=["outcome_date"]).copy()
     df["t_days"] = df["outcome_date"].map(lambda d: d.toordinal())
 
     series = [
-        ("type1", "red",   "False positive (Type I)"),
-        ("type2", "green", "False negative (Type II)"),
-        ("missing_tibu","blue",  "Missing in TIBU"),
+        (fp_col, "red",   "False positive"),
+        (fn_col, "green", "False negative"),
+        (fm_col, "blue",  "Missing in TIBU"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1116,7 +1149,7 @@ def generate_error_over_time_figure(main_df, dqa_df):
     ax.legend(framealpha=0.9, handlelength=1.0, labelspacing=0.5)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
-    out_file = os.path.join(OUTPUT_DIR, "fig_error_over_time.pdf")
+    out_file = os.path.join(OUTPUT_DIR, f"fig_error_over_time{suffix}.pdf")
     fig.savefig(out_file, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_file}")
@@ -1135,8 +1168,8 @@ def generate_error_over_time_paper_figure(main_df, dqa_df):
     df["t_days"] = df["paper_date"].map(lambda d: d.toordinal())
 
     series = [
-        ("type1",        "red",   "False positive (Type I)"),
-        ("type2",        "green", "False negative (Type II)"),
+        ("type1",        "red",   "False positive"),
+        ("type2",        "green", "False negative"),
         ("missing_tibu", "blue",  "Missing in TIBU"),
     ]
 
@@ -1522,9 +1555,9 @@ def generate_date_field_audit(main_df, dqa_df):
 
     # tex_color is a LaTeX color spec; mpl_color is the matplotlib equivalent.
     categories = [
-        ("No error",                (pair["type1"]==0)&(pair["type2"]==0)&(pair["missing_tibu"]==0), "black",           "black"),
-        ("Type I (false positive)", (pair["type1"]==1), "red",             "red"),
-        ("Type II (false negative)",(pair["type2"]==1), "green!60!black",  "darkgreen"),
+        ("No error",       (pair["type1"]==0)&(pair["type2"]==0)&(pair["missing_tibu"]==0), "black",           "black"),
+        ("False positive", (pair["type1"]==1), "red",             "red"),
+        ("False negative", (pair["type2"]==1), "green!60!black",  "darkgreen"),
         # missing_tibu records have no tibu_date, so are absent from this table.
     ]
 
@@ -1587,8 +1620,8 @@ def generate_date_field_audit(main_df, dqa_df):
                label=f"No error (N={len(ne)})")
     # Plot errors prominently on top with larger, edged markers.
     for name, mask, mpl_color, marker in [
-        ("Type I (false positive)",  pair["type1"]==1, "#d62728", "o"),
-        ("Type II (false negative)", pair["type2"]==1, "#2ca02c", "o"),
+        ("False positive", pair["type1"]==1, "#d62728", "o"),
+        ("False negative", pair["type2"]==1, "#2ca02c", "o"),
     ]:
         sub = pair[mask]
         ax.scatter(sub["paper_date"], sub["tibu_date"],
@@ -1616,6 +1649,67 @@ def generate_date_field_audit(main_df, dqa_df):
     out_path = os.path.join(OUTPUT_DIR, "fig_tibu_vs_paper_date.pdf")
     plt.savefig(out_path)
     plt.close()
+    print(f"Saved {out_path}")
+
+
+def generate_dqa_sensitivity_table(main_df, dqa_df):
+    """
+    Compact comparison of headline vs date-gated error counts/rates for §5.
+    Three rows (false positive, false negative, missing in TIBU); two columns
+    (Headline, Date-gated). Saves tblSI_sensitivity.tex.
+    """
+    print("\n--- Generating DQA sensitivity table (tblSI_sensitivity.tex) ---")
+    df = _build_error_df(main_df, dqa_df)
+    n_total = len(df)
+
+    rows = [
+        ("False positive",   "type1",        "type1_gated",        "red"),
+        ("False negative",   "type2",        "type2_gated",        "green!60!black"),
+        ("Missing in TIBU",  "missing_tibu", "missing_tibu_gated", "blue"),
+    ]
+
+    # Count records the gate could not adjudicate (kept by missing-date default).
+    miss_t1 = int(((df["type1"] == 1) & (df["tibu_date"].isna() | df["paper_date"].isna())).sum())
+    miss_t2 = int(((df["type2"] == 1) & (df["tibu_date"].isna() | df["paper_date"].isna())).sum())
+
+    latex = []
+    latex.append(r"\newsavebox{\SensBox}")
+    latex.append(r"\savebox{\SensBox}{\scriptsize{")
+    latex.append(r"\begin{tabular}{l|rr|rr}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(r" & \multicolumn{2}{c|}{Headline} & \multicolumn{2}{c}{Date-gated} \\")
+    latex.append(r"Error type & $N$ & Rate & $N$ & Rate \\")
+    latex.append(r"\hline \\[-8pt]")
+    for label, raw_col, gated_col, tex_color in rows:
+        n_raw   = int(df[raw_col].sum())
+        n_gated = int(df[gated_col].sum())
+        r_raw   = 100 * n_raw   / n_total if n_total else 0.0
+        r_gated = 100 * n_gated / n_total if n_total else 0.0
+        colored = rf"\textcolor{{{tex_color}}}{{{label}}}"
+        latex.append(
+            rf"{colored} & {n_raw} & {r_raw:.2f}\% & {n_gated} & {r_gated:.2f}\% \\"
+        )
+    latex.append(r"\hline\hline")
+    latex.append(r"\end{tabular}}}")
+    latex.append(r"\begin{minipage}{\wd\SensBox}")
+    latex.append(r"\usebox{\SensBox}")
+    latex.append(r"\par\vspace{4pt}\noindent")
+    latex.append(
+        r"\scriptsize{\textit{Note:} Denominator is the "
+        rf"$N = {n_total:,}$ classifiable matched records. "
+        r"Under the date-gated definition, a TIBU--paper outcome disagreement "
+        r"is counted as an error only when the paper outcome date is strictly "
+        r"later than the TIBU outcome date; otherwise the record is treated as "
+        rf"concordant on the assumption that TIBU reflects a post-audit paper "
+        rf"update. The rule cannot be applied to records with an unparseable "
+        rf"date on either side ($n = {miss_t1}$ false-positive and $n = {miss_t2}$ false-negative "
+        r"records), and such records preserve their headline classification. "
+        r"Missing-in-TIBU is unaffected since TIBU is blank by construction.}"
+    )
+    latex.append(r"\end{minipage}")
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_sensitivity.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
     print(f"Saved {out_path}")
 
 
@@ -1667,8 +1761,14 @@ def main():
     generate_error_density_figure(main_df, dqa_df_cleaned)
     generate_correction_lag_table(main_df, dqa_df_cleaned)
 
-    # Section 5 — date-field audit
+    # Section 5 — date-field audit and date-gated sensitivity table
     generate_date_field_audit(main_df, dqa_df_cleaned)
+    generate_dqa_sensitivity_table(main_df, dqa_df_cleaned)
+
+    # Appendix — recreated tables/figure under the date-gated definition
+    generate_error_by_clinic(main_df, dqa_df_cleaned, gated=True)
+    generate_error_by_patient_characteristics(main_df, dqa_df_cleaned, gated=True)
+    generate_error_over_time_figure(main_df, dqa_df_cleaned, gated=True)
 
     print("\nAll DQA outputs generated successfully.")
 
