@@ -1,4 +1,4 @@
-## Recent analyses
+## New analyses (05_06_2026)
 
 ### 1. Clinic-level error vs. outcome scatter
 
