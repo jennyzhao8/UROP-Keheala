@@ -1713,6 +1713,289 @@ def generate_dqa_sensitivity_table(main_df, dqa_df):
     print(f"Saved {out_path}")
 
 
+def generate_logistic_regression_table(main_df, dqa_df):
+    """
+    Four logistic regressions predicting DQA error types from individual
+    characteristics, clinic characteristics, and record age.  Province fixed
+    effects included in all models but not displayed.  Saves
+    tblSI_logit_errors.tex.
+
+    Outcomes (same denominator: all records with classifiable paper outcome):
+      any_error    – Type I | Type II | Missing in TIBU
+      type1        – False positive (TIBU success, paper failure)
+      type2        – False negative (TIBU failure, paper success)
+      missing_tibu – Missing in TIBU (TIBU blank, paper has outcome)
+    """
+    import statsmodels.api as sm
+    import warnings
+    print("\n--- Generating logistic regression table (tblSI_logit_errors.tex) ---")
+
+    clinic_summary = pd.read_csv(
+        os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv")
+    )
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+
+    df = _build_error_df(main_df, dqa_df)
+    df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
+    df = df.merge(
+        clinic_summary[["clinic_id", "urban", "tibu_patients", "province"]],
+        left_on="clinic_id_num", right_on="clinic_id", how="left",
+    )
+    df["any_error"]      = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+    df["age_reg_years"]  = df["age_reg"] / 365.25
+    df["log_clinic_size"] = np.log1p(df["tibu_patients"])
+
+    # Drop Test Province and records with no province
+    df = df[df["province"].notna() & (df["province"] != "Test Province")].copy()
+
+    # Province dummies (reference = first alphabetically after drop_first)
+    prov_dummies = pd.get_dummies(df["province"], prefix="prov", drop_first=True, dtype=float)
+    prov_cols = prov_dummies.columns.tolist()
+    df = pd.concat([df.reset_index(drop=True), prov_dummies.reset_index(drop=True)], axis=1)
+
+    indiv_vars  = ["male", "age_in_years", "hiv_positive", "extrapulmonary",
+                   "retreatment", "bacteriologically_confirmed"]
+    clinic_vars = ["urban", "log_clinic_size"]
+    age_var     = ["age_reg_years"]
+    all_covars  = indiv_vars + clinic_vars + age_var + prov_cols
+
+    outcomes = [
+        ("any_error",    "Overall error"),
+        ("type1",        "False positive\\\\ (Type I)"),
+        ("type2",        "False negative\\\\ (Type II)"),
+        ("missing_tibu", "False missing"),
+    ]
+
+    cols_needed = [col for col, _ in outcomes] + all_covars
+    df_reg = df[cols_needed].dropna()
+
+    # Province dummies with no DQA records at all are constant → drop globally
+    live_prov_cols = [c for c in prov_cols if df_reg[c].nunique() > 1]
+    base_covars = indiv_vars + clinic_vars + age_var
+    print(f"  Regression sample: N = {len(df_reg):,}")
+
+    results = {}
+    for col, label in outcomes:
+        y = df_reg[col].astype(float)
+        # Per-outcome: also drop province dummies with zero events for this
+        # outcome (complete separation → singular matrix in low-event models)
+        active_prov = [c for c in live_prov_cols
+                       if y[df_reg[c] == 1].sum() > 0]
+        covars = base_covars + active_prov
+        X_out = sm.add_constant(df_reg[covars].astype(float))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            res = None
+            for method in ["newton", "bfgs", "lbfgs", "nm"]:
+                try:
+                    r = sm.Logit(y, X_out).fit(disp=0, maxiter=500,
+                                                method=method)
+                    if res is None or r.mle_retvals.get("converged"):
+                        res = r
+                    if r.mle_retvals.get("converged"):
+                        break
+                except Exception:
+                    continue
+        results[col] = res
+        if res is not None:
+            conv = res.mle_retvals.get("converged", "?")
+            print(f"  {col}: converged={conv}, "
+                  f"pseudo-R2={res.prsquared:.3f}, "
+                  f"n_events={int(y.sum())}, "
+                  f"n_prov_fe={len(active_prov)}")
+
+    def stars(pval):
+        if pval < 0.001: return r"$^{***}$"
+        if pval < 0.01:  return r"$^{**}$"
+        if pval < 0.05:  return r"$^{*}$"
+        return ""
+
+    def combined_cell(res, var):
+        if res is None: return "---"
+        try:
+            c, p, se = res.params[var], res.pvalues[var], res.bse[var]
+            return rf"{c:.3f}{stars(p)} ({se:.3f})"
+        except KeyError:
+            return "---"
+
+    display_vars = [
+        # (var_name, display_label, group_header_before)
+        ("male",                       "Male",                          r"\textit{Individual characteristics}"),
+        ("age_in_years",               "Age (years)",                   None),
+        ("hiv_positive",               "HIV positive",                  None),
+        ("extrapulmonary",             "Extrapulmonary TB",             None),
+        ("retreatment",                "Retreatment case",              None),
+        ("bacteriologically_confirmed","Bacteriologically confirmed",   None),
+        ("urban",                      "Urban clinic",                  r"\textit{Clinic characteristics}"),
+        ("log_clinic_size",            "Clinic size (log patients)",    None),
+        ("age_reg_years",              "Record age (years)",            r"\textit{Record characteristics}"),
+    ]
+
+    latex = []
+    latex.append(r"\begin{tabular}{lcccc}")
+    latex.append(r"\hline\hline \\[-8pt]")
+    latex.append(
+        r" & \shortstack{Overall\\error}"
+        r" & \shortstack{False positive\\(Type I)}"
+        r" & \shortstack{False negative\\(Type II)}"
+        r" & \shortstack{False\\missing} \\"
+    )
+    latex.append(r"\hline \\[-8pt]")
+
+    current_group = None
+    for var, label, group_hdr in display_vars:
+        if group_hdr and group_hdr != current_group:
+            latex.append(rf"{group_hdr} & & & & \\")
+            current_group = group_hdr
+        row = " & ".join(combined_cell(results[col], var) for col, _ in outcomes)
+        latex.append(rf"\quad {label} & {row} \\[2pt]")
+
+    latex.append(r"\hline \\[-8pt]")
+    latex.append(r"Province fixed effects & Yes & Yes & Yes & Yes \\[4pt]")
+
+    n_row  = " & ".join(f"{int(results[c].nobs):,}" if results[c] else "---" for c, _ in outcomes)
+    r2_row = " & ".join(f"{results[c].prsquared:.3f}"  if results[c] else "---" for c, _ in outcomes)
+    latex.append(rf"$N$ & {n_row} \\")
+    latex.append(rf"McFadden's $R^2$ & {r2_row} \\")
+    latex.append(r"\hline\hline \\[-6pt]")
+    latex.append(
+        r"\multicolumn{5}{l}{\scriptsize{Log-odds coefficients. Standard errors in parentheses. "
+        r"Province fixed effects included but not displayed.}} \\"
+    )
+    latex.append(
+        r"\multicolumn{5}{l}{\scriptsize{"
+        r"$^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.}} \\"
+    )
+    latex.append(r"\end{tabular}")
+
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_logit_errors.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(latex))
+    print(f"Saved {out_path}")
+
+
+def generate_clinic_error_vs_outcome_figure(main_df, dqa_df):
+    """
+    Scatter: per-clinic overall error rate (y) vs. unsuccessful outcome rate (x).
+    Unsuccessful = paper outcome in {D, F, LTFU}.
+    Error = any DQA error (Type I, Type II, or missing in TIBU).
+    Clinics with <5 DQA records are excluded.
+    Marker shape: × = urban, ○ = rural.  Colour = province.
+    Saves fig_clinic_error_vs_outcome.pdf.
+    """
+    print("\n--- Generating clinic error vs. outcome figure ---")
+
+    from matplotlib import font_manager
+    _lm_dir = os.path.expanduser(
+        "~/Library/TinyTeX/texmf-dist/fonts/opentype/public/lm"
+    )
+    for _f in ["lmsans10-regular.otf", "lmsans10-bold.otf",
+               "lmsans10-oblique.otf", "lmsans10-boldoblique.otf"]:
+        _fp = os.path.join(_lm_dir, _f)
+        if os.path.exists(_fp):
+            font_manager.fontManager.addfont(_fp)
+    plt.rcParams.update({"font.family": "Latin Modern Sans"})
+
+    clinic_summary = pd.read_csv(
+        os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv")
+    )
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+
+    df = _build_error_df(main_df, dqa_df)
+    df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
+    df = df.merge(
+        clinic_summary[["clinic_id", "urban", "province"]],
+        left_on="clinic_id_num", right_on="clinic_id", how="left",
+    )
+    df["any_error"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+
+    clinic_df = (
+        df.groupby("clinic_id_num")
+        .agg(
+            n=("scrn", "count"),
+            error_rate=("any_error", "mean"),
+            unsuccessful_rate=("uo_paper", "mean"),
+            urban=("urban", "first"),
+            province=("province", "first"),
+        )
+        .reset_index()
+    )
+    clinic_df = clinic_df[
+        (clinic_df["n"] >= 5)
+        & clinic_df["province"].notna()
+        & (clinic_df["province"] != "Test Province")
+    ].copy()
+    clinic_df["error_pct"]       = clinic_df["error_rate"]       * 100
+    clinic_df["unsuccessful_pct"] = clinic_df["unsuccessful_rate"] * 100
+
+    provinces = sorted(clinic_df["province"].dropna().unique())
+    cmap = plt.cm.get_cmap("tab20", len(provinces))
+    prov_color = {p: cmap(i) for i, p in enumerate(provinces)}
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    for is_urban, marker, s, lw in [(1, "x", 80, 2.0), (0, "o", 50, 0.8)]:
+        sub = clinic_df[clinic_df["urban"] == is_urban]
+        for _, row in sub.iterrows():
+            c = prov_color.get(row["province"], "gray")
+            ax.scatter(
+                row["unsuccessful_pct"],
+                row["error_pct"],
+                marker=marker,
+                color=c,
+                s=s,
+                linewidths=lw,
+                alpha=0.85,
+                zorder=3,
+            )
+
+    prov_handles = [
+        plt.Line2D(
+            [0], [0], marker="o", linestyle="", color="w",
+            markerfacecolor=prov_color[p], markeredgecolor="gray",
+            markersize=8, label=p,
+        )
+        for p in provinces
+    ]
+    style_handles = [
+        plt.Line2D(
+            [0], [0], marker="x", linestyle="", color="gray",
+            markersize=9, markeredgewidth=2.0, label="Urban",
+        ),
+        plt.Line2D(
+            [0], [0], marker="o", linestyle="", color="w",
+            markerfacecolor="white", markeredgecolor="gray",
+            markersize=8, label="Rural",
+        ),
+    ]
+
+    leg1 = ax.legend(
+        handles=prov_handles, title="Province",
+        loc="upper left", fontsize=8, title_fontsize=8,
+        framealpha=0.85,
+    )
+    ax.add_artist(leg1)
+    ax.legend(handles=style_handles, loc="upper right", fontsize=9, framealpha=0.85)
+
+    ax.set_xlabel("Unsuccessful outcome rate, paper registry (D, F, or LTFU; %)", fontsize=11)
+    ax.set_ylabel("Overall DQA error rate (%)", fontsize=11)
+    ax.set_title(
+        "Clinic-level data quality vs. treatment outcomes\n"
+        "(x = urban, o = rural; colour = province; error = Type I + II + Missing in TIBU)",
+        fontsize=10,
+    )
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
+    ax.grid(True, alpha=0.25, linewidth=0.5)
+    fig.tight_layout()
+
+    out_path = os.path.join(OUTPUT_DIR, "fig_clinic_error_vs_outcome.pdf")
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    plt.rcParams.update(plt.rcParamsDefault)
+    print(f"Saved {out_path}")
+
+
 def main():
     print("Starting Consolidated DQA Analysis...")
 
@@ -1760,6 +2043,8 @@ def main():
     generate_error_by_age_figure(main_df, dqa_df_cleaned)
     generate_error_density_figure(main_df, dqa_df_cleaned)
     generate_correction_lag_table(main_df, dqa_df_cleaned)
+    generate_logistic_regression_table(main_df, dqa_df_cleaned)
+    generate_clinic_error_vs_outcome_figure(main_df, dqa_df_cleaned)
 
     # Section 5 — date-field audit and date-gated sensitivity table
     generate_date_field_audit(main_df, dqa_df_cleaned)
