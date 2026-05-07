@@ -72,7 +72,7 @@ For the outcome analysis, patients recorded as transferred out in TIBU---includi
     \item \textbf{False negative} in the digital record (a Type~II error): TIBU records a failure while the paper registry records success. Clinically: TIBU \emph{understates} the program's success.
     \item \textbf{Missing in TIBU}: TIBU contains no outcome but the paper registry does. This is distinct from loss-to-follow-up, which is itself a recorded outcome: ``missing in TIBU'' means the clinic did record an outcome on paper, but the TIBU entry was never created or never finalized.
 \end{itemize}
-The cross-tabulation in Table~\ref{tbl:crosstab} maps the full distribution of these discrepancies across outcome categories; subsequent tables stratify error rates by clinic characteristics (province, urbanicity, and size) and patient characteristics (sex, age, disease type, and HIV status); and the smoothed time-series figures trace how error rates vary across the study period and with the age of the patient record.
+The cross-tabulation in Table~\ref{tbl:crosstab} maps the full distribution of these discrepancies across outcome categories. Subsequent subsections of \S\ref{sec:outcome_errors} then ask, in order, \emph{when} errors occurred (a smoothed time-series of error rates over the study period), \emph{where} they occurred (clinic-level breakdowns by province, urbanicity, and size), and \emph{who} experienced them (patient-level breakdowns by sex, age, disease type, and HIV status); a multivariate counterpart of the where/who breakdowns appears in Appendix~\ref{sec:appendix_logit}.
 
 \vspace{6pt}
 \noindent\fbox{\begin{minipage}{\dimexpr\textwidth-2\fboxsep-2\fboxrule}
@@ -135,26 +135,47 @@ matched patients ($N = 3{,}370$). Counts on the diagonal are concordant; off-dia
     \resizebox{\textwidth}{!}{\input{tblSI_DQAcrosstab.tex}}
 \end{table}
 
-\subsection{Error Rates by Clinic Characteristics}
+\subsection{When did errors occur?}
+\label{sec:errors_when}
 
-Table~\ref{tbl:clinic_errors} reports false-positive, false-negative, and missing-in-TIBU rates stratified by province, urbanicity, and clinic size.
+\setcounter{figure}{1}
+The TIBU dataset used for these analyses reflects a single final extract. The latest treatment-outcome dates cluster in late December 2021, and we treat the snapshot as having occurred on 1 January 2022. Figure~\ref{fig:over_time} plots DQA error rates against outcome date, estimated via locally-weighted regression (lowess); shaded bands show percentile bootstrap 95\% confidence intervals (500 resamples). For records that are missing in TIBU (and therefore have no TIBU outcome date), the paper-registry outcome date is used in its place, so that these records remain representable on the time axis.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_error_over_time.pdf}
+    \caption{DQA error rates over time by outcome date (TIBU when available, paper otherwise). Lowess smooth with percentile bootstrap 95\% CI bands.}
+    \label{fig:over_time}
+\end{figure}
+
+\noindent The dominant feature of the figure is a pronounced peak in the missing-in-TIBU rate (to roughly 15\%) for records with outcome dates in 2020 Q1--Q2, coinciding with the onset of the COVID-19 pandemic response in Kenya. Of the 116 missing-in-TIBU records in the classifiable sample, 63 fall in these two quarters. \texttt{NC} is a TIBU interim code denoting that treatment is still in progress; treating it as equivalent to blank (rather than as a medical failure) rolls the affected records into the missing-in-TIBU category, which accounts for 76 of the 116 (the remaining 40 have TIBU entirely blank). False-positive and false-negative rates are low and roughly flat across the study period.
+
+A sensitivity check using paper-registry outcome dates throughout (rather than TIBU date with paper fallback for missing-in-TIBU records) is reported in Appendix~\ref{sec:appendix_paper_dates}. The COVID-era spike in missing-in-TIBU remains clearly visible there, confirming that it is driven by when outcomes actually occurred (as captured on paper), not by when TIBU happened to record them.
+
+\subsection{Where did errors occur?}
+\label{sec:errors_where}
+
+Table~\ref{tbl:clinic_errors} reports false-positive, false-negative, and missing-in-TIBU rates stratified by province, urbanicity, and clinic size. In the full sample (left panel), error rates appear elevated at small clinics, in two provinces (Eastern South and Rift Valley South), and in rural areas. However, this concentration traces almost entirely to two specific clinics (IDs 0 and 115), whose missing-in-TIBU rates of $12.7\%$ and $15.4\%$ are an order of magnitude above the study-wide rate of $3.8\%$. These two clinics are responsible for the COVID-era reporting gap visible in Figure~\ref{fig:over_time}: 50 of the 116 missing-in-TIBU records in the sample come from them, inidcating that at these clinics paper-registry entries continued through the pandemic but TIBU outcomes were largely not recorded. 
+
+The right panel of Table~\ref{tbl:clinic_errors} repeats the breakdown after excluding these clinics 0 and 115, to allow for a comparison of error rates with and without the COVID-era reporting gap.  Once those two clinics are removed, the missing-in-TIBU rate falls from $3.8\%$ to $2.4\%$, and the within-stratum rates flatten: the small-clinic missing rate drops from $5.1\%$ to $2.8\%$, the rural rate from $3.3\%$ to $0.9\%$, and the Eastern-South and Rift-Valley-South rates from $8.7\%$ and $7.7\%$ to $0.8\%$ and $0.0\%$ respectively. False-positive and false-negative rates barely move under the exclusion, consistent with their being dispersed across the country rather than concentrated. 
+
+A multivariate logistic regression with patient, clinic, and record-age covariates corroborates this picture (Appendix~\ref{sec:appendix_logit}): once the two clinics are excluded, the only systematic predictor of missing-in-TIBU is record age, and there is no evidence of patient- or clinic-level structural predictors.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by province, urbanicity, and clinic size.}
+    \caption{DQA error rates by province, urbanicity, and clinic size; full sample (left panel) and excluding the two clinics responsible for the COVID-era missing-in-TIBU spike (right panel).}
     \label{tbl:clinic_errors}
     \resizebox{\textwidth}{!}{\input{tblSI_error_by_clinic_char.tex}}
 \end{table}
 
-\subsection{Error Rates by Patient Characteristics}
+\subsection{Who experienced errors?}
+\label{sec:errors_who}
 
-Table~\ref{tbl:patient_errors} reports false-positive, false-negative, and
-missing-in-TIBU rates broken down by individual characteristics and disease
-characteristics.
+Table~\ref{tbl:patient_errors} reports the same error rates broken down by individual patient and disease characteristics, again with a side-by-side panel excluding the two COVID-impacted clinics. Errors and significant correlations present in the left panel attenuate sharply in the right: the missing-in-TIBU rate among males falls from $3.6\%$ to $1.2\%$, the rate among the 15--34 age band falls from $2.6\%$ to $0.9\%$, the HIV-positive rate from $3.0\%$ to $1.6\%$, and so on across all rows. False-positive and false-negative rates are largely unchanged. As with the clinic-level breakdown, the multivariate model in Appendix~\ref{sec:appendix_logit} confirms that no patient characteristic independently predicts missingness once the two clinics are excluded; the apparent demographic gradients in the left panel are picking up the demographic profile of those two clinics rather than any general pattern.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by individual and disease characteristics.}
+    \caption{DQA error rates by individual and disease characteristics; full sample (left panel) and excluding the two COVID-impacted clinics (right panel).}
     \label{tbl:patient_errors}
     \resizebox{\textwidth}{!}{\input{tblSI_error_by_patient_char.tex}}
 \end{table}
@@ -176,22 +197,6 @@ Table~\ref{tbl:lag} reports two measures of record age at the TIBU extract snaps
 
 \noindent Stratifying instead by paper outcome date (the ground-truth timestamp) shows a false-negative rate that is roughly flat across the study period (0.4--1.5\% per quarter from 2018 Q3 through 2020 Q2), and the 22 false-negative records are spread across 12 clinics with no overlap with the two clinics responsible for the COVID-era missing-in-TIBU spike. On this reading, the apparent concentration of false negatives at long reporting lags is largely an artifact of where TIBU's (incorrect) outcome date lands on the calendar---an early ``failed'' closure is mechanically older than a later ``completed'' closure would have been---rather than evidence of a temporal gradient in the underlying error rate.
 \fi  % --- end commented-out §4.4 ---
-
-\subsection{Error Rates Over Time}
-
-\setcounter{figure}{1}
-The TIBU dataset used for these analyses reflects a single final extract. The latest treatment-outcome dates cluster in late December 2021, and we treat the snapshot as having occurred on 1 January 2022. Figure~\ref{fig:over_time} plots DQA error rates against outcome date, estimated via locally-weighted regression (lowess); shaded bands show percentile bootstrap 95\% confidence intervals (500 resamples). For records that are missing in TIBU (and therefore have no TIBU outcome date), the paper-registry outcome date is used in its place, so that these records remain representable on the time axis.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{fig_error_over_time.pdf}
-    \caption{DQA error rates over time by outcome date (TIBU when available, paper otherwise). Lowess smooth with percentile bootstrap 95\% CI bands.}
-    \label{fig:over_time}
-\end{figure}
-
-A sensitivity check using paper-registry outcome dates throughout (rather than TIBU date with paper fallback for missing-in-TIBU records) is reported in Appendix~\ref{sec:appendix_paper_dates}. The COVID-era spike in missing-in-TIBU remains clearly visible there, confirming that it is driven by when outcomes actually occurred (as captured on paper), not by when TIBU happened to record them.
-
-\noindent The dominant feature of the figure is a pronounced peak in the missing-in-TIBU rate (to roughly 15\%) for records with outcome dates in 2020 Q1--Q2, coinciding with the onset of the COVID-19 pandemic response in Kenya. Of the 116 missing-in-TIBU records in the classifiable sample, 63 fall in these two quarters, and 50 are concentrated at just two clinics whose overall missing-in-TIBU rates (12.7\% and 15.4\%) are an order of magnitude above the study-wide rate of 3.8\%. At these clinics, paper-registry entries continued through the pandemic but TIBU outcomes were largely not recorded. \texttt{NC} is a TIBU interim code denoting that treatment is still in progress; treating it as equivalent to blank (rather than as a medical failure) rolls the affected records into the missing-in-TIBU category, which accounts for 76 of the 116 (the remaining 40 have TIBU entirely blank). False-positive and false-negative rates are low and roughly flat across the study period. Equivalent breakdowns under the alternative ``date-gated'' definition of error introduced in \S\ref{sec:date_errors} are collected in Appendix~\ref{sec:appendix_gated}.
 
 \iffalse  % --- §4.6 Supplementary record-age views commented out (Apr 2026) ---
 \subsection{Supplementary views: error rates against record-age axes}
@@ -357,7 +362,7 @@ Figure~\ref{fig:over_time_paper} replays the over-time analysis of \S\ref{sec:ou
 \label{sec:appendix_gated}
 % =============================================================================
 
-This appendix recreates the breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under the date-gated classification introduced in \S\ref{sec:date_errors}. A matched record is counted as a TIBU error only if the TIBU and paper outcomes disagree \emph{and} the paper outcome date is strictly later than the TIBU outcome date; otherwise, on the reading that TIBU may reflect a post-audit paper update, the record is treated as concordant. Missing-in-TIBU is unchanged because TIBU is blank by construction. Records with an unparseable date on either side preserve their headline classification ($n = 8$ false-positive and $n = 3$ false-negative records). Headline-vs-gated marginal totals are in Table~\ref{tbl:sensitivity}.
+This appendix recreates the breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under the date-gated classification introduced in \S\ref{sec:date_errors}. A matched record is counted as a TIBU error only if the TIBU and paper outcomes disagree \emph{and} the paper outcome date is strictly later than the TIBU outcome date; otherwise, on the reading that TIBU may reflect a post-audit paper update, the record is treated as concordant. Missing-in-TIBU is unchanged because TIBU is blank by construction. Records with an unparseable date on either side preserve their headline classification ($n = 8$ false-positive and $n = 3$ false-negative records). Headline-vs-gated marginal totals are in Table~\ref{tbl:sensitivity}. As in the body, each table presents two side-by-side panels: the full classifiable sample on the left, and the same breakdown excluding the two COVID-impacted clinics on the right.
 
 \begin{table}[H]
     \centering
@@ -379,5 +384,21 @@ This appendix recreates the breakdowns of Tables~\ref{tbl:clinic_errors} and~\re
     \caption{DQA error rates over time, under the date-gated definition. Compare with Figure~\ref{fig:over_time}.}
     \label{fig:over_time_gated}
 \end{figure}
+
+% =============================================================================
+\section{Multivariate predictors of missing-in-TIBU}
+\label{sec:appendix_logit}
+% =============================================================================
+
+The marginal breakdowns in \S\S\ref{sec:errors_where} and \ref{sec:errors_who} stratify error rates one characteristic at a time, leaving open whether apparent associations reflect that characteristic or a correlated confound. Table~\ref{tbl:logit_errors} reports a logistic regression of missing-in-TIBU on individual, clinic, and record-age covariates jointly, with province fixed effects. We restrict to missing-in-TIBU because the false-positive and false-negative rates (31 and 21 events respectively) are too low to identify a multivariate model with province FE; the marginal evidence for those error types is in Tables~\ref{tbl:clinic_errors}--\ref{tbl:patient_errors}, and false positives are in any case dominated by audit-snapshot artifacts (\S\ref{sec:date_errors}). The first column uses the full classifiable sample; the second column excludes the two clinics responsible for the COVID-era reporting gap (clinic IDs 0 and 115, together $\approx 43\%$ of missing-in-TIBU events) as a sensitivity check, since events concentrated in those two clinics could otherwise drive coefficients on covariates merely correlated with their idiosyncratic profile.
+
+\begin{table}[H]
+    \centering
+    \caption{Average marginal effects on the probability of missing-in-TIBU, in percentage points; cluster-robust standard errors (by clinic) in parentheses.}
+    \label{tbl:logit_errors}
+    {\footnotesize\input{tblSI_logit_errors.tex}}
+\end{table}
+
+Removing the two COVID clinics collapses both nominally interesting non-temporal coefficients. The point estimate on \emph{Male} moves from $+2.6$~pp to $-0.3$~pp, and the estimate on \emph{Clinic size} moves from $-1.0$~pp/log-patient to $+0.3$~pp; neither is statistically significant in either specification, but the full-sample estimates were suggestive enough to warrant the check. \emph{Record age} survives in both columns but its magnitude more than halves (from $-8.4$ to $-3.6$~pp/year, with significance falling from $p < 0.001$ to $p < 0.05$). We read this as a mostly mechanical reporting-lag effect: at any fixed snapshot date, more recent records have had less time to be transcribed into TIBU. The two COVID clinics inflate the slope because their missing-in-TIBU records cluster in the late, COVID-affected portion of the registration window. Outside those two clinics, neither patient demographics nor clinic-level structural features predict TIBU missingness in this sample; the only systematic signal is a modest record-age gradient consistent with reporting lag.
 
 \end{document}

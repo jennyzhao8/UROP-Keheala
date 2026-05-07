@@ -1,24 +1,50 @@
-\begin{tabular}{lcccc}
-\hline\hline \\[-8pt]
- & \shortstack{Overall\\error} & \shortstack{False positive\\(Type I)} & \shortstack{False negative\\(Type II)} & \shortstack{False\\missing} \\
-\hline \\[-8pt]
-\textit{Individual characteristics} & & & & \\
-\quad Male & 0.579$^{*}$ (0.226) & -0.356 (0.385) & 0.236 (0.484) & 1.356$^{***}$ (0.366) \\[2pt]
-\quad Age (years) & 0.007 (0.006) & 0.021$^{*}$ (0.010) & -0.008 (0.015) & -0.003 (0.009) \\[2pt]
-\quad HIV positive & 0.107 (0.227) & -0.237 (0.478) & 0.686 (0.492) & 0.122 (0.321) \\[2pt]
-\quad Extrapulmonary TB & -0.339 (0.402) & -0.858 (1.049) & -13.105 (398.260) & 0.771 (0.502) \\[2pt]
-\quad Retreatment case & -0.030 (0.340) & 0.689 (0.512) & -1.139 (1.054) & -0.007 (0.537) \\[2pt]
-\quad Bacteriologically confirmed & 0.145 (0.249) & 0.619 (0.522) & -0.468 (0.497) & 0.462 (0.377) \\[2pt]
-\textit{Clinic characteristics} & & & & \\
-\quad Urban clinic & 0.003 (0.369) & -0.665 (0.736) & -9.994 (68.966) & 0.761 (0.482) \\[2pt]
-\quad Clinic size (log patients) & -0.328$^{**}$ (0.114) & 0.031 (0.191) & -0.180 (0.252) & -0.529$^{**}$ (0.170) \\[2pt]
-\textit{Record characteristics} & & & & \\
-\quad Record age (years) & -1.720$^{***}$ (0.246) & 0.059 (0.420) & 0.395 (0.537) & -4.304$^{***}$ (0.537) \\[2pt]
-\hline \\[-8pt]
-Province fixed effects & Yes & Yes & Yes & Yes \\[4pt]
-$N$ & 2,821 & 2,821 & 2,821 & 2,821 \\
-McFadden's $R^2$ & 0.144 & 0.058 & 0.128 & 0.396 \\
-\hline\hline \\[-6pt]
-\multicolumn{5}{l}{\scriptsize{Log-odds coefficients. Standard errors in parentheses. Province fixed effects included but not displayed.}} \\
-\multicolumn{5}{l}{\scriptsize{$^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.}} \\
+\begin{tabular}{l c c}
+\toprule
+ & All clinics & Excluding clinics 0 and 115 \\
+\midrule
+\textit{Individual characteristics} & & \\
+\quad Male & +2.64 & -0.25 \\
+           & (1.80) & (0.54) \\
+\addlinespace[3pt]
+\quad Age (years) & -0.01 & -0.00 \\
+           & (0.02) & (0.02) \\
+\addlinespace[3pt]
+\quad HIV positive & +0.24 & +0.11 \\
+           & (0.71) & (0.30) \\
+\addlinespace[3pt]
+\quad Extrapulmonary TB & +1.50 & +0.95 \\
+           & (0.89) & (0.68) \\
+\addlinespace[3pt]
+\quad Retreatment case & -0.01 & -0.05 \\
+           & (0.79) & (0.85) \\
+\addlinespace[3pt]
+\quad Bacteriologically confirmed & +0.90 & +0.79 \\
+           & (0.74) & (0.44) \\
+\addlinespace[3pt]
+\addlinespace[2pt]
+\textit{Clinic characteristics} & & \\
+\quad Urban clinic & +1.48 & +1.80 \\
+           & (1.40) & (1.08) \\
+\addlinespace[3pt]
+\quad Clinic size (log patients) & -1.03 & +0.34 \\
+           & (0.69) & (0.45) \\
+\addlinespace[3pt]
+\addlinespace[2pt]
+\textit{Record characteristics} & & \\
+\quad Record age (years) & -8.38$^{***}$ & -3.55$^{*}$ \\
+           & (2.37) & (1.52) \\
+\addlinespace[3pt]
+\midrule
+Province fixed effects   & Yes & Yes \\
+$N$                      & 2,821 & 2,473 \\
+Missing-in-TIBU events   & 73 & 25 \\
+Clinics                  & 54 & 52 \\
+McFadden's $R^2$         & 0.396 & 0.250 \\
+\bottomrule
+\addlinespace[3pt]
+\multicolumn{3}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability} \\
+\multicolumn{3}{l}{\footnotesize of missing-in-TIBU, in percentage points; cluster-robust standard errors} \\
+\multicolumn{3}{l}{\footnotesize (by clinic), propagated to the AME via the delta method, are in parentheses} \\
+\multicolumn{3}{l}{\footnotesize below each estimate. Province fixed effects included but not displayed.} \\
+\multicolumn{3}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\
 \end{tabular}

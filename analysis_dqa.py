@@ -37,6 +37,11 @@ TIBU_DEIDENTIFIED  = os.path.join(DEIDENTIFIED_DIR, "TIBU_firstnm_deidentified.c
 OUTPUT_DIR         = os.path.join(ROOT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# Two clinics responsible for the COVID-era missing-in-TIBU spike (see §4.2).
+# Used as a sensitivity exclusion in the by-clinic and by-patient tables and in
+# the multivariate appendix.
+COVID_CLINICS = {0.0, 115.0}
+
 # -----------------------------------------------------------------------------
 # SHARED FUNCTIONS (Data Loading & Cleaning)
 # -----------------------------------------------------------------------------
@@ -625,9 +630,14 @@ def generate_outcome_corrections(main_df, dqa_df):
 
 def generate_error_by_clinic(main_df, dqa_df, gated=False):
     """
-    Fig 3: Where are errors most severe?
-    Saves error_rates_by_clinic.csv, error_rates_by_clinic_n10.csv,
-    and tblSI_error_by_clinic_char.tex (or _gated.tex when gated=True).
+    Where were the errors?  Saves error_rates_by_clinic.csv,
+    error_rates_by_clinic_n10.csv, and tblSI_error_by_clinic_char.tex (or
+    _gated.tex when gated=True).  The .tex has two side-by-side panels: the
+    full classifiable sample, and the same breakdown after excluding the two
+    clinics responsible for the COVID-era missing-in-TIBU spike (see
+    COVID_CLINICS).  Subgroup labels and the clinic-size median are computed
+    once on the full sample so the row labels mean the same thing in both
+    panels.
     """
     suffix = "_gated" if gated else ""
     fp_col = "type1_gated"        if gated else "type1"
@@ -646,7 +656,6 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     )
     df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
 
-    # --- CSV: per-clinic stats (only for the headline run) ---
     if not gated:
         clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
         clinic_stats = (
@@ -659,86 +668,98 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
         )
         clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
         clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate"]]
-
         clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
         filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
         filtered.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n10.csv"), index=False)
-
-        total_patients = clinic_stats["n_study"].sum()
-        filtered_patients = filtered["n_study"].sum()
         print(f"Clinics total: {clinic_stats.shape[0]}, with n>=10: {filtered.shape[0]}")
-        print(f"Matched patients: {total_patients}, in n>=10 clinics: {filtered_patients} ({filtered_patients/total_patients:.1%})")
-        print("\nTop 10 clinics by mismatch rate (n>=10):")
-        print(filtered.head(10))
 
-    # --- Tex: by urban/rural, province, and clinic size ---
     median_size = df.drop_duplicates("clinic_id_num")["tibu_patients"].median()
     df["large_clinic"] = (df["tibu_patients"] >= median_size).astype(float)
 
-    total_n = len(df)
+    df_excl  = df[~df["clinic_id_num"].isin(COVID_CLINICS)].copy()
+    samples  = {"all": df, "excl": df_excl}
+    totals   = {k: len(s) for k, s in samples.items()}
 
-    def stats(sub):
+    def stats(sub, total_n):
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
         fp_n, fn_n, fm_n = int(sub[fp_col].sum()), int(sub[fn_col].sum()), int(sub[fm_col].sum())
-        fp_p, fn_p, fm_p = sub[fp_col].mean()*100, sub[fn_col].mean()*100, sub[fm_col].mean()*100
-        return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
+        fp_p = sub[fp_col].mean()*100 if n else 0
+        fn_p = sub[fn_col].mean()*100 if n else 0
+        fm_p = sub[fm_col].mean()*100 if n else 0
+        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p)]
 
-    def fmt(count, pct):
-        return rf"{count:,} ({pct:.1f}\%)"
+    def fmt_panel(pairs):
+        return " & ".join(rf"{n:,} & ({p:.1f}\%)" for n, p in pairs)
 
-    latex_lines = []
+    def row(label, mask_fn):
+        a = stats(mask_fn(samples["all"]),  totals["all"])
+        b = stats(mask_fn(samples["excl"]), totals["excl"])
+        return rf"{label} & {fmt_panel(a)} & {fmt_panel(b)} \\"
+
+    # 17 columns: label + 8 (Panel A) + 8 (Panel B). Empty cells for section headers.
+    BLANK_ROW = " & " * 16
+
     box = r"\ClinicErrBoxGated" if gated else r"\ClinicErrBox"
-    latex_lines.append(rf"\newsavebox{{{box}}}")
-    latex_lines.append(rf"\savebox{{{box}}}{{\scriptsize{{")
-    latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
-    latex_lines.append(r"\hline\hline \\[-8pt]")
-    latex_lines.append(
+    L = []
+    L.append(rf"\newsavebox{{{box}}}")
+    L.append(rf"\savebox{{{box}}}{{\footnotesize{{")
+    L.append(r"\begin{tabular}{l|rr|rr|rr|rr||rr|rr|rr|rr}")
+    L.append(r"\hline\hline \\[-8pt]")
+    L.append(
+        r"& \multicolumn{8}{c||}{\textbf{All clinics}}"
+        r" & \multicolumn{8}{c}{\textbf{Excluding clinics 0 and 115}} \\"
+    )
+    L.append(r"\cline{2-9}\cline{10-17} \\[-8pt]")
+    L.append(
         r"& \multicolumn{2}{c|}{}"
+        r" & \multicolumn{2}{c|}{False positive}"
+        r" & \multicolumn{2}{c|}{False negative}"
+        r" & \multicolumn{2}{c||}{Missing in TIBU}"
+        r" & \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
         r" & \multicolumn{2}{c}{Missing in TIBU} \\"
     )
-    latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
-    latex_lines.append(r"\hline \\[-8pt]")
-
-    # By province
-    latex_lines.append(r"\textit{By province} & & & & & & & & \\")
-    for prov in sorted(df["province"].dropna().unique()):
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["province"] == prov])
-        latex_lines.append(rf"\quad {prov} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-
-    # By urban/rural
-    latex_lines.append(r"\rule{0pt}{14pt}\textit{By urban/rural} & & & & & & & & \\")
-    for label, mask in [("Urban", df["urban"] == 1), ("Rural", df["urban"] == 0)]:
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[mask])
-        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-
-    # By clinic size
-    latex_lines.append(r"\rule{0pt}{14pt}\textit{By clinic size} & & & & & & & & \\")
-    for label, mask in [("Large clinic", df["large_clinic"] == 1), ("Small clinic", df["large_clinic"] == 0)]:
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[mask])
-        latex_lines.append(rf"\quad {label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-
-    # All
-    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df)
-    latex_lines.append(rf"\rule{{0pt}}{{14pt}}All & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-
-    latex_lines.append(r"\hline\hline")
-    latex_lines.append(r"\end{tabular}}}")
-    latex_lines.append(rf"\begin{{minipage}}{{\wd{box}}}")
-    latex_lines.append(rf"\usebox{{{box}}}")
-    latex_lines.append(r"\par\vspace{4pt}\noindent")
-    latex_lines.append(
-        rf"\scriptsize{{\textit{{Note:}} Urban/rural classification is based on clinic records. "
-        rf"Large clinics are those with at least {int(median_size):,} patients registered in TIBU (median); "
-        rf"small clinics are those with fewer.}}"
+    L.append(
+        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%)"
+        r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
     )
-    latex_lines.append(r"\end{minipage}")
+    L.append(r"\hline \\[-8pt]")
+
+    L.append(rf"\textit{{By province}}{BLANK_ROW}\\")
+    for prov in sorted(df["province"].dropna().unique()):
+        L.append(row(rf"\quad {prov}", lambda d, p=prov: d[d["province"] == p]))
+
+    L.append(rf"\rule{{0pt}}{{14pt}}\textit{{By urban/rural}}{BLANK_ROW}\\")
+    for label, val in [("Urban", 1), ("Rural", 0)]:
+        L.append(row(rf"\quad {label}", lambda d, v=val: d[d["urban"] == v]))
+
+    L.append(rf"\rule{{0pt}}{{14pt}}\textit{{By clinic size}}{BLANK_ROW}\\")
+    for label, val in [("Large clinic", 1), ("Small clinic", 0)]:
+        L.append(row(rf"\quad {label}", lambda d, v=val: d[d["large_clinic"] == v]))
+
+    a_all  = stats(samples["all"],  totals["all"])
+    a_excl = stats(samples["excl"], totals["excl"])
+    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(a_all)} & {fmt_panel(a_excl)} \\")
+
+    L.append(r"\hline\hline")
+    L.append(r"\end{tabular}}}")
+    L.append(rf"\begin{{minipage}}{{\wd{box}}}")
+    L.append(rf"\usebox{{{box}}}")
+    L.append(r"\par\vspace{4pt}\noindent")
+    L.append(
+        rf"\footnotesize{{\textit{{Note:}} Urban/rural classification is based on clinic records. "
+        rf"Large clinics are those with at least {int(median_size):,} patients registered in TIBU (median); "
+        rf"small clinics are those with fewer. The right panel excludes the two clinics with the highest "
+        rf"absolute error counts (clinic IDs 0 and 115; together they contribute most of the COVID-era "
+        rf"missing-in-TIBU spike).}}"
+    )
+    L.append(r"\end{minipage}")
 
     out_path = os.path.join(OUTPUT_DIR, f"tblSI_error_by_clinic_char{suffix}.tex")
     with open(out_path, "w") as f:
-        f.write("\n".join(latex_lines))
+        f.write("\n".join(L))
     print(f"Saved {out_path}")
 
 def generate_clinic_characteristics_table(main_df, dqa_df):
@@ -820,9 +841,10 @@ def generate_error_by_outcome(main_df, dqa_df):
 
 def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     """
-    Fig 4: For whom are errors most severe?
-    Error rates by patient and disease characteristics.
-    Outputs tblSI_error_by_patient_char.tex (or _gated.tex when gated=True).
+    Who experienced the errors?  Error rates by patient and disease
+    characteristics.  Outputs tblSI_error_by_patient_char.tex (or _gated.tex
+    when gated=True).  Two side-by-side panels: full sample and excluding the
+    two COVID-impacted clinics, mirroring the by-clinic table.
     """
     suffix = "_gated" if gated else ""
     fp_col = "type1_gated"        if gated else "type1"
@@ -831,6 +853,7 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     print(f"\n--- Generating Error by Patient Characteristics (Fig 4{suffix}) ---")
 
     df = _build_error_df(main_df, dqa_df)
+    df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
     df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
 
     df["age_group"] = pd.cut(
@@ -839,70 +862,93 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
         labels=[r"$<$15", "15--34", "35--54", "55+"]
     )
 
-    total_n = len(df)
+    df_excl = df[~df["clinic_id_num"].isin(COVID_CLINICS)].copy()
+    samples = {"all": df, "excl": df_excl}
+    totals  = {k: len(s) for k, s in samples.items()}
 
-    def stats(sub):
-        if len(sub) == 0:
-            return 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0
+    def stats(sub, total_n):
         n = len(sub)
         n_pct = n / total_n * 100 if total_n else 0
-        fp_n = int(sub[fp_col].sum())
-        fp_p = sub[fp_col].mean() * 100
-        fn_n = int(sub[fn_col].sum())
-        fn_p = sub[fn_col].mean() * 100
-        fm_n = int(sub[fm_col].sum())
-        fm_p = sub[fm_col].mean() * 100
-        return n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p
+        fp_n, fn_n, fm_n = int(sub[fp_col].sum()), int(sub[fn_col].sum()), int(sub[fm_col].sum())
+        fp_p = sub[fp_col].mean()*100 if n else 0
+        fn_p = sub[fn_col].mean()*100 if n else 0
+        fm_p = sub[fm_col].mean()*100 if n else 0
+        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p)]
 
-    def fmt(count, pct):
-        return rf"{count:,} ({pct:.1f}\%)"
+    def fmt_panel(pairs):
+        return " & ".join(rf"{n:,} & ({p:.1f}\%)" for n, p in pairs)
 
-    latex_lines = []
-    latex_lines.append(r"\scriptsize{")
-    latex_lines.append(r"\begin{tabular}{l|rr|rr|rr|rr}")
-    latex_lines.append(r"\hline\hline \\[-8pt]")
-    latex_lines.append(
+    def row(label, mask_fn):
+        a = stats(mask_fn(samples["all"]),  totals["all"])
+        b = stats(mask_fn(samples["excl"]), totals["excl"])
+        return rf"{label} & {fmt_panel(a)} & {fmt_panel(b)} \\"
+
+    BLANK_ROW = " & " * 16
+
+    box = r"\PatientErrBoxGated" if gated else r"\PatientErrBox"
+    L = []
+    L.append(rf"\newsavebox{{{box}}}")
+    L.append(rf"\savebox{{{box}}}{{\footnotesize{{")
+    L.append(r"\begin{tabular}{l|rr|rr|rr|rr||rr|rr|rr|rr}")
+    L.append(r"\hline\hline \\[-8pt]")
+    L.append(
+        r"& \multicolumn{8}{c||}{\textbf{All clinics}}"
+        r" & \multicolumn{8}{c}{\textbf{Excluding clinics 0 and 115}} \\"
+    )
+    L.append(r"\cline{2-9}\cline{10-17} \\[-8pt]")
+    L.append(
         r"& \multicolumn{2}{c|}{}"
+        r" & \multicolumn{2}{c|}{False positive}"
+        r" & \multicolumn{2}{c|}{False negative}"
+        r" & \multicolumn{2}{c||}{Missing in TIBU}"
+        r" & \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
         r" & \multicolumn{2}{c}{Missing in TIBU} \\"
     )
-    latex_lines.append(r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
-    latex_lines.append(r"\hline \\[-8pt]")
+    L.append(
+        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%)"
+        r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
+    )
+    L.append(r"\hline \\[-8pt]")
 
-    # Individual characteristics
-    latex_lines.append(r"\textit{Individual characteristics} & & & & & & & & \\")
-    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["male"] == 1])
-    latex_lines.append(rf"\quad Male (\%) & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+    L.append(rf"\textit{{Individual characteristics}}{BLANK_ROW}\\")
+    L.append(row(r"\quad Male", lambda d: d[d["male"] == 1]))
 
-    # Age
-    latex_lines.append(r"\rule{0pt}{14pt}\textit{Age group} & & & & & & & & \\")
+    L.append(rf"\rule{{0pt}}{{14pt}}\textit{{Age group}}{BLANK_ROW}\\")
     for grp in [r"$<$15", "15--34", "35--54", "55+"]:
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["age_group"] == grp])
-        latex_lines.append(rf"\quad {grp} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+        L.append(row(rf"\quad {grp}", lambda d, g=grp: d[d["age_group"] == g]))
 
-    # Disease characteristics
-    latex_lines.append(r"\rule{0pt}{14pt}\textit{Disease characteristics} & & & & & & & & \\")
+    L.append(rf"\rule{{0pt}}{{14pt}}\textit{{Disease characteristics}}{BLANK_ROW}\\")
     for col, label in [
-        ("bacteriologically_confirmed", r"\quad Bacteriologically confirmed"),
-        ("extrapulmonary",              r"\quad Extrapulmonary"),
-        ("retreatment",                 r"\quad Retreatment"),
+        ("bacteriologically_confirmed", "Bacteriologically confirmed"),
+        ("extrapulmonary",              "Extrapulmonary"),
+        ("retreatment",                 "Retreatment"),
+        ("hiv_positive",                "HIV positive"),
     ]:
-        n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df[col] == 1])
-        latex_lines.append(rf"{label} & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
-    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df[df["hiv_positive"] == 1])
-    latex_lines.append(rf"\quad HIV positive & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+        L.append(row(rf"\quad {label}", lambda d, c=col: d[d[c] == 1]))
 
-    # All
-    n, n_pct, fn_n, fn_p, fp_n, fp_p, fm_n, fm_p = stats(df)
-    latex_lines.append(rf"\rule{{0pt}}{{14pt}}All & {n:,} & ({n_pct:.1f}\%) & {fp_n:,} & ({fp_p:.1f}\%) & {fn_n:,} & ({fn_p:.1f}\%) & {fm_n:,} & ({fm_p:.1f}\%) \\")
+    a_all  = stats(samples["all"],  totals["all"])
+    a_excl = stats(samples["excl"], totals["excl"])
+    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(a_all)} & {fmt_panel(a_excl)} \\")
 
-    latex_lines.append(r"\hline\hline")
-    latex_lines.append(r"\end{tabular}}")
+    L.append(r"\hline\hline")
+    L.append(r"\end{tabular}}}")
+    L.append(rf"\begin{{minipage}}{{\wd{box}}}")
+    L.append(rf"\usebox{{{box}}}")
+    L.append(r"\par\vspace{4pt}\noindent")
+    L.append(
+        r"\footnotesize{\textit{Note:} Each row shows the count and rate of records "
+        r"matching the row label, and the count and rate of each error type within those records. "
+        r"Rows are not mutually exclusive (e.g.\ a male HIV-positive patient appears in both rows). "
+        r"The right panel excludes clinic IDs 0 and 115 (the two clinics responsible for the "
+        r"COVID-era missing-in-TIBU spike).}"
+    )
+    L.append(r"\end{minipage}")
 
     out_file = os.path.join(OUTPUT_DIR, f"tblSI_error_by_patient_char{suffix}.tex")
     with open(out_file, "w") as f:
-        f.write("\n".join(latex_lines))
+        f.write("\n".join(L))
     print(f"Saved {out_file}")
 
 def _build_error_df(main_df, dqa_df):
@@ -1715,16 +1761,18 @@ def generate_dqa_sensitivity_table(main_df, dqa_df):
 
 def generate_logistic_regression_table(main_df, dqa_df):
     """
-    Four logistic regressions predicting DQA error types from individual
-    characteristics, clinic characteristics, and record age.  Province fixed
-    effects included in all models but not displayed.  Saves
-    tblSI_logit_errors.tex.
+    Logit of missing-in-TIBU on patient/clinic/record-age covariates with
+    province fixed effects.  Two columns: full sample and excluding the two
+    COVID-impacted clinics (IDs 0 and 115; together they contribute ~43%
+    of missing-in-TIBU events).  Cells report average marginal effects in
+    percentage points; standard errors are cluster-robust by clinic.
+    Saves tblSI_logit_errors.tex.
 
-    Outcomes (same denominator: all records with classifiable paper outcome):
-      any_error    – Type I | Type II | Missing in TIBU
-      type1        – False positive (TIBU success, paper failure)
-      type2        – False negative (TIBU failure, paper success)
-      missing_tibu – Missing in TIBU (TIBU blank, paper has outcome)
+    Restricting to missing-in-TIBU because (i) it is the only outcome with
+    enough events to support a multivariate model with province FE, and (ii)
+    the false-positive and false-negative rates are too low to identify
+    coefficients (and false positives are dominated by audit-snapshot
+    artifacts; see Section 5).
     """
     import statsmodels.api as sm
     import warnings
@@ -1741,14 +1789,11 @@ def generate_logistic_regression_table(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban", "tibu_patients", "province"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left",
     )
-    df["any_error"]      = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
-    df["age_reg_years"]  = df["age_reg"] / 365.25
+    df["age_reg_years"]   = df["age_reg"] / 365.25
     df["log_clinic_size"] = np.log1p(df["tibu_patients"])
 
-    # Drop Test Province and records with no province
     df = df[df["province"].notna() & (df["province"] != "Test Province")].copy()
 
-    # Province dummies (reference = first alphabetically after drop_first)
     prov_dummies = pd.get_dummies(df["province"], prefix="prov", drop_first=True, dtype=float)
     prov_cols = prov_dummies.columns.tolist()
     df = pd.concat([df.reset_index(drop=True), prov_dummies.reset_index(drop=True)], axis=1)
@@ -1757,52 +1802,42 @@ def generate_logistic_regression_table(main_df, dqa_df):
                    "retreatment", "bacteriologically_confirmed"]
     clinic_vars = ["urban", "log_clinic_size"]
     age_var     = ["age_reg_years"]
-    all_covars  = indiv_vars + clinic_vars + age_var + prov_cols
+    base_covars = indiv_vars + clinic_vars + age_var
 
-    outcomes = [
-        ("any_error",    "Overall error"),
-        ("type1",        "False positive\\\\ (Type I)"),
-        ("type2",        "False negative\\\\ (Type II)"),
-        ("missing_tibu", "False missing"),
-    ]
-
-    cols_needed = [col for col, _ in outcomes] + all_covars
+    cols_needed = ["missing_tibu", "clinic_id_num"] + base_covars + prov_cols
     df_reg = df[cols_needed].dropna()
 
-    # Province dummies with no DQA records at all are constant → drop globally
-    live_prov_cols = [c for c in prov_cols if df_reg[c].nunique() > 1]
-    base_covars = indiv_vars + clinic_vars + age_var
-    print(f"  Regression sample: N = {len(df_reg):,}")
+    COVID_CLINICS = {0.0, 115.0}
+    specs = [
+        ("all",  "All clinics",                df_reg),
+        ("excl", r"Excl.\ 2 COVID clinics",    df_reg[~df_reg["clinic_id_num"].isin(COVID_CLINICS)].copy()),
+    ]
 
     results = {}
-    for col, label in outcomes:
-        y = df_reg[col].astype(float)
-        # Per-outcome: also drop province dummies with zero events for this
-        # outcome (complete separation → singular matrix in low-event models)
-        active_prov = [c for c in live_prov_cols
-                       if y[df_reg[c] == 1].sum() > 0]
+    for key, _, sample in specs:
+        y = sample["missing_tibu"].astype(float)
+        active_prov = [c for c in prov_cols
+                       if sample[c].nunique() > 1 and y[sample[c] == 1].sum() > 0]
         covars = base_covars + active_prov
-        X_out = sm.add_constant(df_reg[covars].astype(float))
+        X = sm.add_constant(sample[covars].astype(float))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            res = None
-            for method in ["newton", "bfgs", "lbfgs", "nm"]:
-                try:
-                    r = sm.Logit(y, X_out).fit(disp=0, maxiter=500,
-                                                method=method)
-                    if res is None or r.mle_retvals.get("converged"):
-                        res = r
-                    if r.mle_retvals.get("converged"):
-                        break
-                except Exception:
-                    continue
-        results[col] = res
-        if res is not None:
-            conv = res.mle_retvals.get("converged", "?")
-            print(f"  {col}: converged={conv}, "
-                  f"pseudo-R2={res.prsquared:.3f}, "
-                  f"n_events={int(y.sum())}, "
-                  f"n_prov_fe={len(active_prov)}")
+            res = sm.Logit(y, X).fit(
+                disp=0, maxiter=500, method="newton",
+                cov_type="cluster",
+                cov_kwds={"groups": sample["clinic_id_num"].values},
+            )
+            margeff = res.get_margeff(at="overall", method="dydx")
+        results[key] = {
+            "res": res, "margeff": margeff,
+            "n": len(sample), "events": int(y.sum()),
+            "n_clusters": sample["clinic_id_num"].nunique(),
+            "n_prov_fe": len(active_prov),
+        }
+        print(f"  {key}: N={len(sample):,}, events={int(y.sum())}, "
+              f"clusters={sample['clinic_id_num'].nunique()}, "
+              f"converged={res.mle_retvals.get('converged','?')}, "
+              f"pseudo-R2={res.prsquared:.3f}, prov_FE={len(active_prov)}")
 
     def stars(pval):
         if pval < 0.001: return r"$^{***}$"
@@ -1810,61 +1845,77 @@ def generate_logistic_regression_table(main_df, dqa_df):
         if pval < 0.05:  return r"$^{*}$"
         return ""
 
-    def combined_cell(res, var):
-        if res is None: return "---"
+    def coef_pair(spec_key, var):
+        """Return (coefficient cell, SE cell) — both as LaTeX strings."""
+        spec = results[spec_key]
+        names = [n for n in spec["res"].model.exog_names if n != "const"]
         try:
-            c, p, se = res.params[var], res.pvalues[var], res.bse[var]
-            return rf"{c:.3f}{stars(p)} ({se:.3f})"
-        except KeyError:
-            return "---"
+            i = names.index(var)
+        except ValueError:
+            return "---", ""
+        # margeff reports effects in probability units; rescale to pp.
+        m  = spec["margeff"].margeff[i] * 100
+        se = spec["margeff"].margeff_se[i] * 100
+        p  = spec["margeff"].pvalues[i]
+        return rf"{m:+.2f}{stars(p)}", rf"({se:.2f})"
 
     display_vars = [
-        # (var_name, display_label, group_header_before)
-        ("male",                       "Male",                          r"\textit{Individual characteristics}"),
-        ("age_in_years",               "Age (years)",                   None),
-        ("hiv_positive",               "HIV positive",                  None),
-        ("extrapulmonary",             "Extrapulmonary TB",             None),
-        ("retreatment",                "Retreatment case",              None),
-        ("bacteriologically_confirmed","Bacteriologically confirmed",   None),
-        ("urban",                      "Urban clinic",                  r"\textit{Clinic characteristics}"),
-        ("log_clinic_size",            "Clinic size (log patients)",    None),
-        ("age_reg_years",              "Record age (years)",            r"\textit{Record characteristics}"),
+        ("male",                        "Male",                        r"\textit{Individual characteristics}"),
+        ("age_in_years",                "Age (years)",                 None),
+        ("hiv_positive",                "HIV positive",                None),
+        ("extrapulmonary",              "Extrapulmonary TB",           None),
+        ("retreatment",                 "Retreatment case",            None),
+        ("bacteriologically_confirmed", "Bacteriologically confirmed", None),
+        ("urban",                       "Urban clinic",                r"\textit{Clinic characteristics}"),
+        ("log_clinic_size",             "Clinic size (log patients)",  None),
+        ("age_reg_years",               "Record age (years)",          r"\textit{Record characteristics}"),
     ]
 
     latex = []
-    latex.append(r"\begin{tabular}{lcccc}")
-    latex.append(r"\hline\hline \\[-8pt]")
-    latex.append(
-        r" & \shortstack{Overall\\error}"
-        r" & \shortstack{False positive\\(Type I)}"
-        r" & \shortstack{False negative\\(Type II)}"
-        r" & \shortstack{False\\missing} \\"
-    )
-    latex.append(r"\hline \\[-8pt]")
+    latex.append(r"\begin{tabular}{l c c}")
+    latex.append(r"\toprule")
+    latex.append(r" & All clinics & Excluding clinics 0 and 115 \\")
+    latex.append(r"\midrule")
 
     current_group = None
     for var, label, group_hdr in display_vars:
         if group_hdr and group_hdr != current_group:
-            latex.append(rf"{group_hdr} & & & & \\")
+            if current_group is not None:
+                latex.append(r"\addlinespace[2pt]")
+            latex.append(rf"{group_hdr} & & \\")
             current_group = group_hdr
-        row = " & ".join(combined_cell(results[col], var) for col, _ in outcomes)
-        latex.append(rf"\quad {label} & {row} \\[2pt]")
+        c1, se1 = coef_pair("all",  var)
+        c2, se2 = coef_pair("excl", var)
+        latex.append(rf"\quad {label} & {c1} & {c2} \\")
+        latex.append(rf"           & {se1} & {se2} \\")
+        latex.append(r"\addlinespace[3pt]")
 
-    latex.append(r"\hline \\[-8pt]")
-    latex.append(r"Province fixed effects & Yes & Yes & Yes & Yes \\[4pt]")
-
-    n_row  = " & ".join(f"{int(results[c].nobs):,}" if results[c] else "---" for c, _ in outcomes)
-    r2_row = " & ".join(f"{results[c].prsquared:.3f}"  if results[c] else "---" for c, _ in outcomes)
-    latex.append(rf"$N$ & {n_row} \\")
-    latex.append(rf"McFadden's $R^2$ & {r2_row} \\")
-    latex.append(r"\hline\hline \\[-6pt]")
+    latex.append(r"\midrule")
+    n_all,  n_excl  = results["all"]["n"],         results["excl"]["n"]
+    e_all,  e_excl  = results["all"]["events"],    results["excl"]["events"]
+    c_all,  c_excl  = results["all"]["n_clusters"],results["excl"]["n_clusters"]
+    r2_all, r2_excl = results["all"]["res"].prsquared, results["excl"]["res"].prsquared
+    latex.append(rf"Province fixed effects   & Yes & Yes \\")
+    latex.append(rf"$N$                      & {n_all:,} & {n_excl:,} \\")
+    latex.append(rf"Missing-in-TIBU events   & {e_all} & {e_excl} \\")
+    latex.append(rf"Clinics                  & {c_all} & {c_excl} \\")
+    latex.append(rf"McFadden's $R^2$         & {r2_all:.3f} & {r2_excl:.3f} \\")
+    latex.append(r"\bottomrule")
+    latex.append(r"\addlinespace[3pt]")
     latex.append(
-        r"\multicolumn{5}{l}{\scriptsize{Log-odds coefficients. Standard errors in parentheses. "
-        r"Province fixed effects included but not displayed.}} \\"
+        r"\multicolumn{3}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability} \\"
     )
     latex.append(
-        r"\multicolumn{5}{l}{\scriptsize{"
-        r"$^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.}} \\"
+        r"\multicolumn{3}{l}{\footnotesize of missing-in-TIBU, in percentage points; cluster-robust standard errors} \\"
+    )
+    latex.append(
+        r"\multicolumn{3}{l}{\footnotesize (by clinic), propagated to the AME via the delta method, are in parentheses} \\"
+    )
+    latex.append(
+        r"\multicolumn{3}{l}{\footnotesize below each estimate. Province fixed effects included but not displayed.} \\"
+    )
+    latex.append(
+        r"\multicolumn{3}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\"
     )
     latex.append(r"\end{tabular}")
 
