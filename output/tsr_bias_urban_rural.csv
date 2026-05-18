@@ -1,0 +1,4 @@
+stratum,n_paper_denom,n_tibu_denom,paper_tsr,tibu_tsr,bias_pp,n_type1,n_type2,n_missing
+Urban,928,910,86.9,87.3,0.4,10,5,18
+Rural,1992,1927,88.3,88.7,0.4,21,16,65
+Overall,2953,2841,87.9,88.3,0.4,31,21,112
