@@ -2115,6 +2115,136 @@ def generate_tsr_bias(main_df, dqa_df):
     print(f"  Saved: {out_fig}")
 
 
+def generate_tsr_bias_subnational(main_df, dqa_df):
+    """
+    Does the TSR bias vary by geography?  Computes TIBU TSR vs. paper-corrected
+    TSR stratified by (a) urban/rural and (b) province.
+
+    The key NTP-impact question: would subnational rankings or conclusions change
+    if the NTP used paper-corrected outcomes instead of TIBU?
+
+    Outputs:
+      output/tsr_bias_urban_rural.csv   — urban/rural TSR comparison
+      output/tsr_bias_by_province.csv   — province-level TSR comparison + ranks
+      output/fig_tsr_bias_subnational.pdf — two-panel figure
+
+    NOT included in tibu_dqa.tex — exploratory / NTP-impact framing.
+    """
+    print("\n--- TSR Bias Analysis: Subnational (urban/rural + province) ---")
+
+    df = _build_error_df(main_df, dqa_df)
+
+    # Attach clinic metadata
+    clinic = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"),
+                         usecols=["clinic_id", "urban", "province"])
+    df = df.merge(clinic, on="clinic_id", how="left")
+
+    def tsr_stats(sub, label):
+        n = len(sub)
+        if n < 20:
+            return None
+        paper_tsr = (sub["uo_paper"] == 0).sum() / n * 100
+        tibu_cls  = sub.dropna(subset=["uo_tibu"])
+        n_tibu    = len(tibu_cls)
+        tibu_tsr  = (tibu_cls["uo_tibu"] == 0).sum() / n_tibu * 100 if n_tibu > 0 else np.nan
+        return {
+            "stratum":       label,
+            "n_paper_denom": n,
+            "n_tibu_denom":  n_tibu,
+            "paper_tsr":     round(paper_tsr, 1),
+            "tibu_tsr":      round(tibu_tsr,  1) if not np.isnan(tibu_tsr) else np.nan,
+            "bias_pp":       round(tibu_tsr - paper_tsr, 1) if not np.isnan(tibu_tsr) else np.nan,
+            "n_type1":       int(sub["type1"].sum()),
+            "n_type2":       int(sub["type2"].sum()),
+            "n_missing":     int(sub["missing_tibu"].sum()),
+        }
+
+    # ── Urban / rural ─────────────────────────────────────────────────────────
+    urban_rows = []
+    for val, label in [(1.0, "Urban"), (0.0, "Rural")]:
+        row = tsr_stats(df[df["urban"] == val], label)
+        if row:
+            urban_rows.append(row)
+    row_all = tsr_stats(df, "Overall")
+    if row_all:
+        urban_rows.append(row_all)
+
+    urban_df = pd.DataFrame(urban_rows).set_index("stratum")
+    out_ur = os.path.join(OUTPUT_DIR, "tsr_bias_urban_rural.csv")
+    urban_df.to_csv(out_ur)
+    print(f"  Urban/rural saved: {out_ur}")
+    print(urban_df[["n_paper_denom", "paper_tsr", "tibu_tsr", "bias_pp"]].to_string())
+
+    # ── Province ──────────────────────────────────────────────────────────────
+    prov_rows = []
+    for prov, grp in df.groupby("province"):
+        if prov == "Test Province":
+            continue
+        row = tsr_stats(grp, prov)
+        if row:
+            prov_rows.append(row)
+
+    prov_df = pd.DataFrame(prov_rows).set_index("stratum")
+    # Add NTP rank (by TIBU TSR) vs. corrected rank (by paper TSR)
+    prov_df["rank_tibu"]  = prov_df["tibu_tsr"].rank(ascending=False).astype(int)
+    prov_df["rank_paper"] = prov_df["paper_tsr"].rank(ascending=False).astype(int)
+    prov_df["rank_shift"] = prov_df["rank_tibu"] - prov_df["rank_paper"]
+    out_prov = os.path.join(OUTPUT_DIR, "tsr_bias_by_province.csv")
+    prov_df.to_csv(out_prov)
+    print(f"\n  Province saved: {out_prov}")
+    print(prov_df[["n_paper_denom", "paper_tsr", "tibu_tsr", "bias_pp",
+                   "rank_tibu", "rank_paper", "rank_shift"]].to_string())
+
+    # ── Figure ────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: urban vs rural grouped bars
+    ax = axes[0]
+    ur_labels = [r["stratum"] for r in urban_rows]
+    ur_paper  = [r["paper_tsr"] for r in urban_rows]
+    ur_tibu   = [r["tibu_tsr"]  for r in urban_rows]
+    xi = np.arange(len(ur_labels))
+    w  = 0.35
+    ax.bar(xi - w/2, ur_paper, w, color="darkorange", alpha=0.85, label="Paper-corrected")
+    ax.bar(xi + w/2, ur_tibu,  w, color="steelblue",  alpha=0.85, label="TIBU (NTP-reported)")
+    for i, (p, t) in enumerate(zip(ur_paper, ur_tibu)):
+        delta = t - p
+        sign  = "+" if delta >= 0 else ""
+        ax.text(i, max(p, t) + 1, f"{sign}{delta:.1f}pp", ha="center", fontsize=9, color="#444")
+    ax.set_xticks(xi)
+    ax.set_xticklabels(ur_labels)
+    ax.set_ylabel("Treatment success rate (%)")
+    ax.set_title("TSR bias by urban/rural status")
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, 105)
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+
+    # Right: province dot plot (paper TSR vs TIBU TSR), sorted by paper TSR
+    ax2 = axes[1]
+    prov_sorted = prov_df.sort_values("paper_tsr")
+    y_pos = np.arange(len(prov_sorted))
+    ax2.scatter(prov_sorted["paper_tsr"], y_pos, color="darkorange", zorder=3,
+                s=60, label="Paper-corrected", marker="s")
+    ax2.scatter(prov_sorted["tibu_tsr"],  y_pos, color="steelblue",  zorder=3,
+                s=60, label="TIBU (NTP-reported)")
+    for y, (_, row) in zip(y_pos, prov_sorted.iterrows()):
+        ax2.plot([row["paper_tsr"], row["tibu_tsr"]], [y, y],
+                 color="gray", linewidth=1, alpha=0.5, zorder=2)
+    ax2.set_yticks(y_pos)
+    ax2.set_yticklabels(prov_sorted.index, fontsize=8)
+    ax2.set_xlabel("Treatment success rate (%)")
+    ax2.set_title("TSR by province: TIBU vs. paper-corrected\n(sorted by paper TSR)")
+    ax2.legend(fontsize=9)
+    ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax2.grid(axis="x", alpha=0.3)
+
+    fig.tight_layout()
+    out_fig = os.path.join(OUTPUT_DIR, "fig_tsr_bias_subnational.pdf")
+    fig.savefig(out_fig, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n  Figure saved: {out_fig}")
+
+
 def main():
     print("Starting Consolidated DQA Analysis...")
 
@@ -2171,6 +2301,7 @@ def main():
 
     # NTP impact — TSR bias (exploratory; not in tibu_dqa.tex)
     generate_tsr_bias(main_df, dqa_df_cleaned)
+    generate_tsr_bias_subnational(main_df, dqa_df_cleaned)
 
     # Appendix — recreated tables/figure under the date-gated definition
     generate_error_by_clinic(main_df, dqa_df_cleaned, gated=True)
