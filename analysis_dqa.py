@@ -2283,7 +2283,14 @@ def generate_tibu_trajectory_analysis(main_df, dqa_df):
     # Restrict to study patients
     study_ids = set(main_df["scrn"].astype(float).dropna().unique())
     tibu = tibu_raw[tibu_raw["anon_scrn_tibu"].isin(study_ids)].copy()
-    tibu = tibu.sort_values(["anon_scrn_tibu", "reg_date", "source_file"])
+
+    # source_file encodes the export batch (e.g. "8.xlsx", "31.xlsx").
+    # Must sort numerically — string sort puts "31" before "8".
+    # reg_date is the patient's treatment registration date, not a row-entry
+    # timestamp; it is wrong as a primary sort key. Use source_num first, then
+    # reg_date as a secondary tiebreaker within the same batch.
+    tibu["source_num"] = tibu["source_file"].str.replace(".xlsx", "", regex=False).astype(int)
+    tibu = tibu.sort_values(["anon_scrn_tibu", "source_num", "reg_date"])
 
     row_counts = tibu.groupby("anon_scrn_tibu").size().rename("n_tibu_rows")
 
