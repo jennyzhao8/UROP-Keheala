@@ -2245,6 +2245,190 @@ def generate_tsr_bias_subnational(main_df, dqa_df):
     print(f"\n  Figure saved: {out_fig}")
 
 
+def generate_tibu_trajectory_analysis(main_df, dqa_df):
+    """
+    Temporal analysis of individual TIBU records.
+
+    Treats each row in TIBU_firstnm_deidentified as a separate data entry
+    (from different source_file export batches) and asks:
+      1. What are the common patterns of outcome changes across entries?
+      2. How prevalent is NC by registration cohort — when does TIBU 'settle'?
+      3. Do patients with multiple TIBU rows have different DQA error rates
+         than single-row patients?
+      4. For multi-row patients in the DQA matched set: which TIBU entry
+         (first vs. last) better matches the paper outcome?
+
+    Outputs:
+      output/tibu_trajectory_patterns.csv  — trajectory frequency table
+      output/tibu_nc_by_cohort.csv         — NC prevalence by reg quarter
+      output/tibu_error_by_row_count.csv   — DQA error rates by #TIBU rows
+      output/fig_tibu_trajectories.pdf     — three-panel figure
+
+    NOT included in tibu_dqa.tex — exploratory / temporal-structure framing.
+    """
+    print("\n--- TIBU Trajectory Analysis ---")
+
+    stata_epoch = pd.Timestamp("1960-01-01")
+    def from_stata(s):
+        return pd.to_datetime(
+            s.apply(lambda x: stata_epoch + pd.Timedelta(days=x)
+                    if pd.notna(x) else pd.NaT))
+
+    tibu_raw = pd.read_csv(
+        os.path.join(DEIDENTIFIED_DIR, "TIBU_firstnm_deidentified.csv"),
+        low_memory=False)
+    tibu_raw["reg_date"]     = from_stata(tibu_raw["dateofregistration"])
+    tibu_raw["outcome_date"] = from_stata(tibu_raw["treatmentoutcomedate"])
+
+    # Restrict to study patients
+    study_ids = set(main_df["scrn"].astype(float).dropna().unique())
+    tibu = tibu_raw[tibu_raw["anon_scrn_tibu"].isin(study_ids)].copy()
+    tibu = tibu.sort_values(["anon_scrn_tibu", "reg_date", "source_file"])
+
+    row_counts = tibu.groupby("anon_scrn_tibu").size().rename("n_tibu_rows")
+
+    # ── 1. Trajectory patterns ────────────────────────────────────────────────
+    good = {"C", "TC"}
+    bad  = {"D", "F", "LTFU"}
+    def cat(x):
+        if x in good:   return "GOOD"
+        if x in bad:    return "BAD"
+        if x == "NC":   return "NC"
+        if x == "TO":   return "TO"
+        return "BLANK"
+
+    def trajectory(grp):
+        return "->".join(grp["treatmentoutcome"].fillna("BLANK").apply(cat))
+
+    traj = tibu.groupby("anon_scrn_tibu").apply(trajectory)
+    traj_freq = (traj.value_counts()
+                     .reset_index()
+                     .rename(columns={"index": "trajectory", 0: "n",
+                                      "anon_scrn_tibu": "trajectory", "count": "n"}))
+    traj_freq.columns = ["trajectory", "n"]
+    traj_freq["pct"] = (traj_freq["n"] / traj_freq["n"].sum() * 100).round(1)
+    out_traj = os.path.join(OUTPUT_DIR, "tibu_trajectory_patterns.csv")
+    traj_freq.to_csv(out_traj, index=False)
+    print(f"  Trajectory patterns saved: {out_traj}")
+    print(traj_freq.head(15).to_string(index=False))
+
+    # ── 2. NC prevalence by registration quarter ──────────────────────────────
+    # Use the "effective" outcome per patient = outcome of the most recent row
+    latest = tibu.groupby("anon_scrn_tibu").last().reset_index()
+    latest["out_cat"]    = latest["treatmentoutcome"].apply(cat)
+    latest["is_nc"]      = (latest["out_cat"].isin(["NC", "BLANK"])).astype(int)
+    latest["reg_quarter"] = latest["reg_date"].dt.to_period("Q")
+
+    nc_by_q = (latest.groupby("reg_quarter")
+                      .agg(n=("is_nc", "count"), nc_n=("is_nc", "sum"))
+                      .assign(nc_pct=lambda d: (d["nc_n"] / d["n"] * 100).round(1)))
+    out_nc = os.path.join(OUTPUT_DIR, "tibu_nc_by_cohort.csv")
+    nc_by_q.to_csv(out_nc)
+    print(f"\n  NC by cohort saved: {out_nc}")
+    print(nc_by_q.to_string())
+
+    # ── 3. DQA error rates by number of TIBU rows ─────────────────────────────
+    err_df = _build_error_df(main_df, dqa_df)
+    err_df["scrn_float"] = err_df["scrn"].astype(float)
+    err_df = err_df.merge(row_counts.rename("n_tibu_rows"),
+                          left_on="scrn_float", right_index=True, how="left")
+    err_df["row_group"] = err_df["n_tibu_rows"].apply(
+        lambda x: "1 row" if x == 1 else ("2 rows" if x == 2 else "3+ rows")
+            if pd.notna(x) else "unknown")
+
+    err_by_rows = (err_df.groupby("row_group")
+                         .agg(n=("type1", "count"),
+                              type1_pct=("type1",  lambda s: s.mean() * 100),
+                              type2_pct=("type2",  lambda s: s.mean() * 100),
+                              missing_pct=("missing_tibu", lambda s: s.mean() * 100))
+                         .round(1))
+    out_err = os.path.join(OUTPUT_DIR, "tibu_error_by_row_count.csv")
+    err_by_rows.to_csv(out_err)
+    print(f"\n  Error by row count saved: {out_err}")
+    print(err_by_rows.to_string())
+
+    # ── 4. First vs. last TIBU row for multi-row DQA patients ─────────────────
+    multi_ids = row_counts[row_counts > 1].index
+    tibu_multi = tibu[tibu["anon_scrn_tibu"].isin(multi_ids)]
+    dqa_clean   = dqa_df[["scrn", "to_paper"]].copy()
+    dqa_clean["scrn_float"] = dqa_clean["scrn"].astype(float)
+
+    first_row = (tibu_multi.groupby("anon_scrn_tibu")
+                            .first()
+                            .reset_index()[["anon_scrn_tibu", "treatmentoutcome"]]
+                            .rename(columns={"treatmentoutcome": "first_outcome"}))
+    last_row  = (tibu_multi.groupby("anon_scrn_tibu")
+                            .last()
+                            .reset_index()[["anon_scrn_tibu", "treatmentoutcome"]]
+                            .rename(columns={"treatmentoutcome": "last_outcome"}))
+
+    fl = first_row.merge(last_row, on="anon_scrn_tibu")
+    fl = fl.merge(dqa_clean.rename(columns={"scrn_float": "anon_scrn_tibu"}),
+                  on="anon_scrn_tibu", how="inner")
+    fl = fl[fl["to_paper"].isin(list(good) + list(bad))].copy()
+
+    def is_correct(tibu_out, paper_out):
+        if tibu_out in good and paper_out in good: return True
+        if tibu_out in bad  and paper_out in bad:  return True
+        return False
+
+    fl["first_correct"] = fl.apply(lambda r: is_correct(r["first_outcome"], r["to_paper"]), axis=1)
+    fl["last_correct"]  = fl.apply(lambda r: is_correct(r["last_outcome"],  r["to_paper"]), axis=1)
+
+    n_multi_dqa = len(fl)
+    first_acc = fl["first_correct"].mean() * 100
+    last_acc  = fl["last_correct"].mean()  * 100
+    print(f"\n  Multi-row DQA patients with classifiable paper outcome: {n_multi_dqa}")
+    print(f"  Accuracy using first TIBU row:  {first_acc:.1f}%")
+    print(f"  Accuracy using last TIBU row:   {last_acc:.1f}%")
+
+    # ── Figure ────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    # Panel 1: top trajectory patterns as horizontal bar
+    ax1 = axes[0]
+    top = traj_freq.head(12).iloc[::-1]
+    ax1.barh(top["trajectory"], top["pct"], color="steelblue", alpha=0.8)
+    ax1.set_xlabel("% of study patients with multiple TIBU rows")
+    ax1.set_title("Outcome trajectory patterns\n(multi-row study patients)")
+    ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+
+    # Panel 2: NC prevalence by registration quarter (all study patients)
+    ax2 = axes[1]
+    quarters = nc_by_q.index.astype(str)
+    x2 = np.arange(len(quarters))
+    ax2.bar(x2, nc_by_q["nc_pct"], color="steelblue", alpha=0.8)
+    ax2.set_xticks(x2)
+    ax2.set_xticklabels(quarters, rotation=30, ha="right", fontsize=8)
+    ax2.set_ylabel("% of patients with NC/blank as final TIBU entry")
+    ax2.set_title("NC prevalence by registration cohort\n(most recent TIBU entry)")
+    ax2.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    for xi, (_, row) in zip(x2, nc_by_q.iterrows()):
+        ax2.text(xi, row["nc_pct"] + 0.5, f'n={int(row["n"])}',
+                 ha="center", fontsize=7, color="#555")
+
+    # Panel 3: DQA error rates by number of TIBU rows
+    ax3 = axes[2]
+    row_labels = err_by_rows.index.tolist()
+    x3 = np.arange(len(row_labels))
+    w  = 0.25
+    ax3.bar(x3 - w,   err_by_rows["type1_pct"],   w, color="red",        alpha=0.8, label="Type I")
+    ax3.bar(x3,       err_by_rows["type2_pct"],   w, color="green",      alpha=0.8, label="Type II")
+    ax3.bar(x3 + w,   err_by_rows["missing_pct"], w, color="steelblue",  alpha=0.8, label="False missing")
+    ax3.set_xticks(x3)
+    ax3.set_xticklabels(row_labels)
+    ax3.set_ylabel("% of records (paper-denominator)")
+    ax3.set_title("DQA error rates\nby number of TIBU rows per patient")
+    ax3.legend(fontsize=8)
+    ax3.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+
+    fig.tight_layout()
+    out_fig = os.path.join(OUTPUT_DIR, "fig_tibu_trajectories.pdf")
+    fig.savefig(out_fig, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n  Figure saved: {out_fig}")
+
+
 def main():
     print("Starting Consolidated DQA Analysis...")
 
@@ -2302,6 +2486,9 @@ def main():
     # NTP impact — TSR bias (exploratory; not in tibu_dqa.tex)
     generate_tsr_bias(main_df, dqa_df_cleaned)
     generate_tsr_bias_subnational(main_df, dqa_df_cleaned)
+
+    # Temporal / trajectory analysis of TIBU records (exploratory; not in tibu_dqa.tex)
+    generate_tibu_trajectory_analysis(main_df, dqa_df_cleaned)
 
     # Appendix — recreated tables/figure under the date-gated definition
     generate_error_by_clinic(main_df, dqa_df_cleaned, gated=True)
