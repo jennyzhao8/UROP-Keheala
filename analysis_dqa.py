@@ -1996,6 +1996,125 @@ def generate_clinic_error_vs_outcome_figure(main_df, dqa_df):
     print(f"Saved {out_path}")
 
 
+def generate_tsr_bias(main_df, dqa_df):
+    """
+    NTP bias analysis: what treatment success rate (TSR) would the NTP report
+    from TIBU alone, versus the paper-corrected ground truth?
+
+    Outputs:
+      output/tsr_bias_summary.csv  — overall + by-registration-quarter TSR table
+      output/fig_tsr_bias.pdf      — TIBU TSR vs paper-corrected TSR over time
+
+    NOT included in tibu_dqa.tex — exploratory / NTP-impact framing.
+    """
+    print("\n--- TSR Bias Analysis (NTP impact) ---")
+
+    df = _build_error_df(main_df, dqa_df)
+
+    def tsr_stats(sub):
+        n = len(sub)
+        paper_tsr = (sub["uo_paper"] == 0).sum() / n
+
+        # NTP-style TSR: denominator = records with a classifiable TIBU outcome
+        # (blank/NC records are simply absent from the NTP's count)
+        tibu_cls = sub.dropna(subset=["uo_tibu"])
+        n_tibu = len(tibu_cls)
+        tibu_tsr = (tibu_cls["uo_tibu"] == 0).sum() / n_tibu if n_tibu > 0 else np.nan
+
+        # Decompose discordance: Type I inflates TSR, Type II deflates it
+        n_type1       = sub["type1"].sum()        # TIBU says good, paper says bad → inflates
+        n_type2       = sub["type2"].sum()        # TIBU says bad, paper says good → deflates
+        n_missing     = sub["missing_tibu"].sum() # excluded from NTP denominator entirely
+
+        return {
+            "n_paper_denom": n,
+            "n_tibu_denom":  n_tibu,
+            "paper_tsr":     round(paper_tsr * 100, 1),
+            "tibu_tsr":      round(tibu_tsr  * 100, 1) if not np.isnan(tibu_tsr) else np.nan,
+            "bias_pp":       round((tibu_tsr - paper_tsr) * 100, 1) if not np.isnan(tibu_tsr) else np.nan,
+            "n_type1":       int(n_type1),
+            "n_type2":       int(n_type2),
+            "n_missing_tibu": int(n_missing),
+        }
+
+    # Registration quarter (Q2 2018 – Q4 2019 for this study window)
+    df["reg_quarter"] = df["reg_date"].dt.to_period("Q")
+    quarter_rows = []
+    for qtr, grp in df.groupby("reg_quarter"):
+        if grp["reg_date"].notna().sum() < 20:
+            continue
+        row = tsr_stats(grp)
+        row["period"] = str(qtr)
+        quarter_rows.append(row)
+
+    overall = tsr_stats(df)
+    overall["period"] = "Overall"
+
+    summary = pd.DataFrame(quarter_rows + [overall]).set_index("period")
+    out_csv = os.path.join(OUTPUT_DIR, "tsr_bias_summary.csv")
+    summary.to_csv(out_csv)
+    print(f"  Saved: {out_csv}")
+    print(summary[["n_paper_denom", "paper_tsr", "tibu_tsr", "bias_pp"]].to_string())
+
+    # ── Figure ────────────────────────────────────────────────────────────────
+    qrows = [r for r in quarter_rows if not np.isnan(r["tibu_tsr"])]
+    if len(qrows) < 2:
+        print("  Too few quarters for a time-series figure; skipping.")
+        return
+
+    labels      = [r["period"] for r in qrows]
+    paper_vals  = [r["paper_tsr"] for r in qrows]
+    tibu_vals   = [r["tibu_tsr"]  for r in qrows]
+    x           = range(len(labels))
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Left panel: TSR over registration quarter
+    ax = axes[0]
+    ax.plot(x, tibu_vals,  "o-",  color="steelblue",  linewidth=2, markersize=6,
+            label="TIBU (NTP-reported)")
+    ax.plot(x, paper_vals, "s--", color="darkorange",  linewidth=2, markersize=6,
+            label="Paper-corrected (ground truth)")
+    for xi, t, p in zip(x, tibu_vals, paper_vals):
+        delta = t - p
+        sign  = "+" if delta >= 0 else ""
+        ax.annotate(f"{sign}{delta:.1f}pp",
+                    xy=(xi, max(t, p) + 1.5), ha="center", fontsize=8, color="#555")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
+    ax.set_ylabel("Treatment success rate (%)")
+    ax.set_xlabel("Registration cohort (quarter)")
+    ax.set_title("TIBU vs. paper-corrected TSR\nby registration cohort")
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, 105)
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+
+    # Right panel: error attribution stacked bar (per 100 paper-denom records)
+    ax2 = axes[1]
+    type1_r   = [r["n_type1"]        / r["n_paper_denom"] * 100 for r in qrows]
+    type2_r   = [r["n_type2"]        / r["n_paper_denom"] * 100 for r in qrows]
+    missing_r = [r["n_missing_tibu"] / r["n_paper_denom"] * 100 for r in qrows]
+
+    ax2.bar(x, type1_r,   color="red",        label="Type I (inflates TSR)",   alpha=0.8)
+    ax2.bar(x, type2_r,   color="green",      label="Type II (deflates TSR)",  alpha=0.8,
+            bottom=type1_r)
+    bottom2 = [a + b for a, b in zip(type1_r, type2_r)]
+    ax2.bar(x, missing_r, color="steelblue",  label="False missing (excluded from NTP denom)",
+            alpha=0.8, bottom=bottom2)
+    ax2.set_xticks(list(x))
+    ax2.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
+    ax2.set_ylabel("% of paper-denominator records")
+    ax2.set_xlabel("Registration cohort (quarter)")
+    ax2.set_title("Error composition by registration cohort\n(% of paper-audited records)")
+    ax2.legend(fontsize=8)
+
+    fig.tight_layout()
+    out_fig = os.path.join(OUTPUT_DIR, "fig_tsr_bias.pdf")
+    fig.savefig(out_fig, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {out_fig}")
+
+
 def main():
     print("Starting Consolidated DQA Analysis...")
 
@@ -2049,6 +2168,9 @@ def main():
     # Section 5 — date-field audit and date-gated sensitivity table
     generate_date_field_audit(main_df, dqa_df_cleaned)
     generate_dqa_sensitivity_table(main_df, dqa_df_cleaned)
+
+    # NTP impact — TSR bias (exploratory; not in tibu_dqa.tex)
+    generate_tsr_bias(main_df, dqa_df_cleaned)
 
     # Appendix — recreated tables/figure under the date-gated definition
     generate_error_by_clinic(main_df, dqa_df_cleaned, gated=True)
