@@ -34,6 +34,13 @@
 \titlespacing*{\section}{0pt}{1.4em}{0.4em}
 \titlespacing*{\subsection}{0pt}{0.9em}{0.3em}
 
+% --- Bibliography ---
+\usepackage[numbers,super,sort&compress]{natbib}
+
+% --- Diagrams (CONSORT-style exclusion cascade) ---
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}
+
 % --- Hyperlinks ---
 \usepackage[hypertexnames=false]{hyperref}
 \hypersetup{
@@ -43,90 +50,130 @@
     urlcolor=blue!60!black,
 }
 
+% --- Auto-generated exclusion-cascade counts (single source of truth;
+%     written by write_cascade_macros() in analysis_dqa.py) ---
+\input{cascade_macros.tex}
+
 % --- Title ---
-\title{TIBU Data Quality Audit}
-\author{Jenny Zhao\\\small Wellesley College \and Erez Yoeli\\\small MIT Sloan School of Management}
-\date{}
+\title{Discrepancies between TIBU and clinics' paper records: \\ Evidence from a secondary analysis of a 2018--19 audit}
+\author{Jenny Zhao and Erez Yoeli}
+\date{\today}
 
 \begin{document}
 
 \maketitle
-\tableofcontents
-\newpage
+%\tableofcontents
+%\newpage
 
-\section{Overview}
 
-This document presents a data quality audit (DQA) of TIBU, Kenya's national electronic TB reporting system. The audit was conducted in the context of the Keheala Study 2 randomized controlled trial (see \href{https://www.medrxiv.org/content/10.64898/2026.02.11.26346015v1}{medRxiv:2026.02.11.26346015v1}), but its scope is TIBU-specific and the findings stand independently of the trial results.
+Since its introduction in 2012, Kenya's TIBU database has increasingly served as the source for peer-reviewed tuberculosis research in Kenya, including national analyses of treatment interruption and mortality \citep{masini2016survival, onyango2017reduction}, HIV--TB co-infection outcomes \citep{kosgei2020gender, ngari2023burden}, pediatric TB epidemiology and forecasting \citep{onyango2018pediatric, siamba2023application}, drug-resistant TB  \citep{mutabari2022drtb}, county-level retrospective cohorts of treatment outcomes and mortality \citep{abdullahi2019mortality, kimani2021factors, katana2022kilifi, ngari2025mortality}, community health volunteers' contribution to case notification \citep{abongo2020chv}, and national estimates of TB under-reporting \citep{tollefson2016underreporting}.  Despite the growing reliance on TIBU, its accuracy remains relatively under-studied.  A high quality audit of $N=222$ cases registered in 2012 found that, three years later (in 2015) TIBU was more complete than TB treatment cards and treatment clinic registries.  However, when a patient's paper records could be located, they often did not concord with TIBU, e.g., over 30\% of outcome data in TIBU did not concord with the outcomes in the paper records \citep{sharma2015dataquality}.  In subsequent years, TIBU's recording and reporting tools were revised and a recurring data-quality-assessment (DQA) programme was instituted \citep{ntldp2019dqa, ntldp2022dqa}; the most recent DQA (2022) reports high concordance between TIBU and the facility TB register ($\sim$89\% of treatment outcomes, Cohen's $\kappa \approx 0.86$) \citep{ntldp2022dqa}. These assessments are internal program self-audits on small, purposively selected samples, however, and TIBU has not since been the subject of an independent, systematically sampled audit.  
 
-TIBU is a paper-to-digital reporting system: clinic staff record treatment data on the paper TB register at the point of care, and TB clerks subsequently transcribe entries from the paper register into TIBU. We therefore treat the paper register as the ground truth; a TIBU--paper discrepancy reflects a gap or error on the transcription side rather than at point of care.
+This study helps to fill that gap.  It presents exploratory, secondary analyses of an audit of $N=\Nselected$ TIBU records, which was conducted as part of a trial evaluating a digital adherence tool called Keheala \citep{yoeli2026digital}.  Although a relatively large number of records was audited, we note up-front that the audit had important limitations: it was restricted to a subset of the Keheala trial participants, and focused exclusively on outcome data; no effort was made to systematically evaluate TIBU beyond this population, or to comprehensively digitize other fields in the registry.  However, despite these limitations, we believe analyses of the audit data can be informative to researchers who rely on TIBU to study tuberculosis in Kenya.
 
-The TIBU extract available for this audit covers patients registered between April 2018 and December 2019 ($N = 119{,}653$ nationwide), with treatment outcomes recorded through late 2021. The long outcome window reflects standard TB treatment duration: roughly six months for drug-sensitive disease and up to 18--24 months for multidrug-resistant (MDR) disease. A paper-registry audit was conducted across study clinics in multiple waves beginning in late 2018; the latest outcome dates captured by the audit fall in mid-2020, implying the final wave ran into the second half of 2020. The audit yielded $3{,}645$ records, of which $3{,}370$ could be matched to a corresponding TIBU record and form the basis of the DQA (see \S\ref{sec:matching} on the matching procedure). Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} characterize three nested cohorts: all patients registered in TIBU during the study period, patients at study clinics in TIBU, and the subset of study-clinic patients whose records were audited.
 
-The audit covers two categories of recording error. The primary analysis (\S\ref{sec:outcome_errors}) compares the \textbf{treatment-outcome field} as recorded in TIBU against the paper registry, quantifying outcome misclassification. A complementary analysis of errors in the \textbf{date fields} (registration date, outcome date) is in progress and will be added as a subsequent section.
+\section{Methods}
+\subsection{Data sources and audit sample}
+The TIBU extract examined herein covers patients registered between April 2018 and December 2019 ($N = \NallTIBU$ nationwide), the Keheala trial study period.  The data were extracted in December 2021, and treatment outcomes were recorded through late 2021.  The long outcome window reflects standard TB treatment duration: roughly six months for drug-sensitive disease and up to 18--24 months for multidrug-resistant (MDR) disease.
 
-For the outcome analysis, patients recorded as transferred out in TIBU---including those assigned the MT4 code, used when drug resistance is discovered mid-treatment and the patient is referred to a drug-resistant TB program---are excluded, as a transfer is not an auditable final outcome. Records where the paper registry has no outcome are also excluded, as the audit requires ground truth. Among the remaining patients, three types of outcome discrepancy are distinguished:
+The Keheala trial was restricted to the following counties: Kakamega, Kiambu, Kisumu, Machakos, Mombasa, Nairobi, Turkana, and Wajir.  Additional restrictions included: access to a cell phone, and knowledge of English or Kiswahili \cite{yoeli2026digital}.  Clinic participation in the Keheala trial was voluntary.  Within the study period, $\Npartclinics$ patients were registered in clinics that participated in the trial.
+
+For the audit, Wajir was omitted because it is remote and difficult to reach, and had few participants.  For each of the remaining seven counties, the Keheala trial study team digitized paper-registry records for all Keheala trial participants in two sub-counties.  These sub-counties were selected via the following cluster-randomization procedure.  Within each county, sub-counties were ordered by the number of participants, and a median split was performed, so that one `block' of sub-counties comprised a relatively small group of the largest sub-counties and the other block a larger group of smaller sub-counties.  One sub-county was then drawn from each block to represent the county (two in total: one large, one small), for $\NsubcountiesAudited$ audited sub-counties in all.\footnote{We identify the audited sub-counties operationally as the two sub-counties per county containing the most patients located in the paper audit; this reproduces the two-per-county design and excludes a small number of stray, cross-coded patients in neighbouring sub-counties.}  All $\Nselected$ trial participants registered in these sub-counties during the study period constitute the population from which paper records were sought (the \emph{selected} sample).  
+
+The study team searched clinics' paper registries for these participants in multiple waves, beginning in late 2018 and ending in mid-2020, matching records on SCRN and spot-checking against patient and disease characteristics such as age, sex, and HIV co-infection.  Figure~\ref{fig:consort} summarizes the resulting exclusion cascade.  Of the $\Nselected$ selected participants, $\Nlocated$ were \emph{located} in the paper registry; the remaining $\Nnotlocated$ could not be found and are not auditable.  From the located records we exclude only the $\Nuncheckable$ patients whose paper record contains no classifiable outcome (blank or the interim ``not completed'' code), as the audit requires a ground-truth outcome.  This leaves an \emph{analyzed} sample of $\Nanalyzed$ patients.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance = 11mm and 10mm,
+  box/.style  = {draw, rounded corners, align=center, text width=60mm,
+                 inner sep=5pt, font=\small},
+  excl/.style = {draw, align=left, text width=68mm, inner sep=4pt,
+                 font=\footnotesize},
+  arr/.style  = {-{Latex[length=2.2mm]}, thick},
+]
+\node[box]                 (all) {All patients in TIBU, study period\\[1pt]($N=\NallTIBU$)};
+\node[box, below=of all]   (par) {Patients at participating clinics\\[1pt]($N=\Npartclinics$)};
+\node[box, below=of par]   (sel) {Selected: participants in the $\NsubcountiesAudited$ audited sub-counties\\[1pt]($N=\Nselected$)};
+\node[box, below=of sel]   (loc) {Located in paper registry\\[1pt]($N=\Nlocated$)};
+\node[box, below=of loc]   (ana) {Analyzed sample\\[1pt]($N=\Nanalyzed$)};
+\node[excl, right=of all]  (e0)  {Not at a participating clinic: $N=\Nnonparticipating$};
+\node[excl, right=of par]  (e1)  {Not in an audited sub-county: $N=\Nnotinaudited$};
+\node[excl, right=of sel]  (e2)  {Not found in paper registry: $N=\Nnotlocated$};
+\node[excl, right=of loc]  (e3)  {No classifiable paper outcome (blank/NC): $N=\Nuncheckable$};
+\draw[arr] (all) -- (par);
+\draw[arr] (par) -- (sel);
+\draw[arr] (sel) -- (loc);
+\draw[arr] (loc) -- (ana);
+\draw[arr] (all) -- (e0);
+\draw[arr] (par) -- (e1);
+\draw[arr] (sel) -- (e2);
+\draw[arr] (loc) -- (e3);
+\end{tikzpicture}
+\caption{Exclusion cascade from all patients registered in TIBU during the study period to the analyzed sample; the box to the right of each step gives the number excluded at that step.}
+\label{fig:consort}
+\end{figure}
+
+The individual and disease characteristics reported in Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} are drawn from the TIBU record and defined as follows: a patient is \emph{bacteriologically confirmed} if the baseline (month-0) sputum smear is positive or GeneXpert reports ``MTB detected''; \emph{drug resistant} if a resistance pattern is recorded; \emph{extrapulmonary} if the disease site is coded extrapulmonary; a \emph{retreatment} case if the registration type is relapse or treatment after loss to follow-up; and \emph{HIV positive} if HIV status is recorded positive.
+
+\subsection{Defining and Classifying Discrepancies}
+The central outcome of interest is a discrepancy between a patient's record in TIBU and in their clinic's TB register, as digitized by the study team.  A record whose TIBU and paper outcomes agree is \emph{concordant}; a record is a \emph{discrepancy} if the two outcomes disagree, or if the TIBU outcome is missing (blank or the interim ``not completed'' code) while the paper register records one.
+
+TIBU is a paper-to-digital reporting system: clinic staff record treatment data on the paper TB register at the point of care, and TB clerks subsequently transcribe those entries into TIBU.  We therefore treat the paper register as ground truth, so that a discrepancy reflects a gap or error in the transcription into TIBU.  
+
+For many of our analyses, we classify discrepancies into categories as follows.  First, we assign every treatment outcome---in both TIBU and the paper register---to one of three documented states: treatment \emph{success} (cure or treatment completion), treatment \emph{failure} (death, treatment failure, or loss to follow-up), or \emph{transfer-out}. Transfer-out (including the MT4 code, used when drug resistance is discovered mid-treatment and the patient is referred to a drug-resistant TB program) is a documented outcome rather than an exclusion: a transfer recorded in the paper register is ground truth like any other outcome, and a TIBU value that disagrees with it is a countable discrepancy.  
+
+Then, comparing the TIBU-recorded outcome against the paper register yields four categories of discrepancy, each named after the outcome TIBU records when it disagrees with the paper register:
 
 \begin{itemize}
 \itemsep0pt
-    \item \textbf{False positive} in the digital record (a Type~I error): TIBU records a successful outcome (treatment completion or cure) but the paper registry records a failure (death, treatment failure, or loss to follow-up). Clinically: TIBU \emph{overstates} the program's success.
-    \item \textbf{False negative} in the digital record (a Type~II error): TIBU records a failure while the paper registry records success. Clinically: TIBU \emph{understates} the program's success.
-    \item \textbf{Missing in TIBU}: TIBU contains no outcome but the paper registry does. This is distinct from loss-to-follow-up, which is itself a recorded outcome: ``missing in TIBU'' means the clinic did record an outcome on paper, but the TIBU entry was never created or never finalized.
+    \item \textbf{False positive} (a Type~I error): TIBU records a successful outcome but the paper registry records something else---a failure or a transfer-out. TIBU \emph{overstates} the program's success.
+    \item \textbf{False negative} (a Type~II error): TIBU records a failure but the paper registry records something else---a success or a transfer-out. TIBU \emph{understates} the true status.
+    \item \textbf{False transfer}: TIBU records the patient as transferred out, but the paper registry records a real success or failure---a patient who was in fact seen through to an outcome at the clinic.
+    \item \textbf{Missing in TIBU}: TIBU contains no outcome (blank or the interim ``not completed'' code) but the paper registry records one. This is distinct from loss-to-follow-up, which is itself a recorded outcome: the clinic did record an outcome on paper, but the TIBU entry was never created or finalized.
 \end{itemize}
-The cross-tabulation in Table~\ref{tbl:crosstab} maps the full distribution of these discrepancies across outcome categories. Subsequent subsections of \S\ref{sec:outcome_errors} then ask, in order, \emph{when} errors occurred (a smoothed time-series of error rates over the study period), \emph{where} they occurred (clinic-level breakdowns by province, urbanicity, and size), and \emph{who} experienced them (patient-level breakdowns by sex, age, disease type, and HIV status); a multivariate counterpart of the where/who breakdowns appears in Appendix~\ref{sec:appendix_logit}.
 
-\vspace{6pt}
-\noindent\fbox{\begin{minipage}{\dimexpr\textwidth-2\fboxsep-2\fboxrule}
-\vspace{2pt}
-\textbf{Key findings.} Across 3,054 classifiable audit records: false-positive raw rate 1.0\%; false-negative rate 0.7\%; records missing from TIBU 3.8\%. The false-positive rate likely overstates true TIBU misclassification: $\sim 70\%$ of false-positive records appear to be audit-snapshot artifacts (paper was updated after the audit transcribed it; TIBU then reflected the revised outcome), and a date-direction sensitivity classification (\S\ref{sec:date_errors}) cuts the rate roughly in half (to $0.5\%$). False-negative and missing-in-TIBU rates are not affected by this caveat. The missing-in-TIBU rate is dominated by a COVID-era reporting gap ($\sim$15\% for treatment outcomes in 2020 Q1--Q2), concentrated at two clinics; outside that window, all three outcome-error rates are low and roughly flat across the study period.
-\vspace{2pt}
-\end{minipage}}
-\vspace{6pt}
+\subsection{Statistical analysis}
+Our analyses proceed in three steps. First, the cross-tabulation in Table~\ref{tbl:crosstab} gives the full distribution of outcome discrepancies across the four categories defined above. Second, we break these discrepancies down by \emph{when} they occurred (a smoothed time series over the study period, \S\ref{sec:errors_when}), \emph{where} they occurred (clinic-level, by province, urbanicity, and size, \S\ref{sec:errors_where}), and among \emph{whom} (patient-level, by sex, age, disease type, and HIV status, \S\ref{sec:errors_who}); a multivariate logistic-regression counterpart of the where/who breakdowns, reporting average marginal effects with clinic-clustered standard errors, appears in Appendix~\ref{sec:appendix_logit}. Third, we use the records' date fields as a sensitivity check on these discrepancy counts (\S\ref{sec:date_errors}).
 
-% =============================================================================
-\section{Patient Characteristics}
-% =============================================================================
+The time-series smoothing (\S\ref{sec:errors_when}) fits each record's binary discrepancy indicator against its outcome date by locally-weighted regression (LOWESS, span $0.35$), with pointwise $95\%$ confidence bands from a percentile bootstrap; the full estimator is described in Appendix~\ref{sec:appendix_smoothing}.
 
-Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} describe the study
-population across three cohorts: all patients registered in the TIBU electronic
-system during the study period, patients at study clinics recorded in TIBU, and
-the subset of study-clinic patients whose records were audited in the paper
-registry DQA.
+A final set of analyses (\S\ref{sec:date_errors}) uses the date fields to probe the assumption that the digitized paper record is ground truth, since the audit's own transcription can err, e.g., through typos, misattribution of a record, or, most relevantly for these analyses, transcription of an out-of-date registry entry. We use three dates per record---the TIBU registration date, the TIBU outcome date, and the paper outcome date---treating implausible values (year before 2010 or after 2025) as missing, and we derive an \emph{outcome date} for the time series (the TIBU outcome date, or the paper outcome date when TIBU is blank, so that missing-in-TIBU records remain plottable) and a \emph{record age} (days from registration to a fixed extract snapshot of 1~January 2022) used as a covariate. We first compare the TIBU and paper outcome dates directly, by discrepancy category (Table~\ref{tbl:date_agree} and Figure~\ref{fig:tibu_vs_paper_date}). We then use these dates to construct a \emph{date-gated} reclassification of discrepancies: a TIBU--paper disagreement is counted as a discrepancy only when the paper outcome date is strictly later than the TIBU outcome date, and is otherwise treated as concordant, on the reading that TIBU carries a post-audit update to the register. Because the audit transcribed dates but did not prioritize their accuracy, these date-field analyses should not be interpreted as conclusive.
+
+\subsection{Preregistration}
+No analyses were pre-registered for this study. The Keheala trial's protocol specified the sampling procedure described above, and the trial's own analyses of the audit data focused on overall false positive and false negative error rates, as well as comparisons of these rates across the trial's treatment groups.
+
+
+\section{Results}
+\subsection{Study Population}
+Tables~\ref{tbl:patient_char} and~\ref{tbl:outcomes} describe the study population and its TIBU-recorded outcomes across the five nested cohorts of the exclusion cascade (Figure~\ref{fig:consort}): all patients registered in TIBU during the study period; all patients at participating clinics; the \emph{selected} participants in the audited sub-counties; those \emph{located} in the paper registry; and the \emph{analyzed} sample. The distributions are stable across the cohorts, indicating that the audited sample is broadly representative of the wider registry population.
 
 \renewcommand{\thetable}{1a}
 \begin{table}[H]
     \centering
-    \caption{Individual and disease characteristics across TIBU and paper registry cohorts.}
+    \caption{Individual and disease characteristics across the five nested cohorts of the exclusion cascade. All values are from the TIBU digital record.}
     \label{tbl:patient_char}
-    \input{tblSI_patient_characteristics.tex}
+    \resizebox{\textwidth}{!}{\input{tblSI_patient_characteristics.tex}}
 \end{table}
 
 \renewcommand{\thetable}{1b}
 \begin{table}[H]
     \centering
-    \caption{Treatment outcomes across TIBU and paper registry cohorts.}
+    \caption{TIBU-recorded treatment outcomes across the five nested cohorts of the exclusion cascade.}
     \label{tbl:outcomes}
-    \input{tblSI_outcomes.tex}
+    \resizebox{\textwidth}{!}{\input{tblSI_outcomes.tex}}
 \end{table}
 \setcounter{table}{1}
 \renewcommand{\thetable}{\arabic{table}}
 
-% =============================================================================
-\section{Record Matching Procedure}
-\label{sec:matching}
-% =============================================================================
-
-\textit{Placeholder --- details of the matching procedure (identifiers used, handling of near-duplicates, reasons for non-matches) are currently being confirmed with the Keheala data team and will be added in a subsequent revision. The headline figures are: $3{,}645$ audited paper records, of which $3{,}370$ ($92.5$\%) were matched to a TIBU entry; the remaining $275$ unmatched audit records are excluded from the DQA because no corresponding TIBU counterpart exists.}
 
 % =============================================================================
-\section{Outcome Errors}
+\subsection{Outcome Discrepancies}
 \label{sec:outcome_errors}
 % =============================================================================
 
-\subsection{Crosstab of TIBU vs.\ Paper Registry Outcomes}
+\subsubsection{Crosstab of TIBU vs.\ Paper Registry Outcomes}
 
-Table~\ref{tbl:crosstab} shows the full cross-tabulation of treatment outcomes
-recorded in TIBU against outcomes recorded in the paper registry for all
-matched patients ($N = 3{,}370$). Counts on the diagonal are concordant; off-diagonal cells are the discrepancies that drive the error rates reported in the subsequent tables. The shaded regions mark the false-positive (red), false-negative (green), and missing-in-TIBU (blue) partitions used throughout the document.
+Table~\ref{tbl:crosstab} cross-tabulates treatment outcomes recorded in TIBU against those recorded in the paper registry, for all located patients ($N = \Nlocated$). Concordant records lie on the diagonal; the off-diagonal cells correspond to discrepancies.  Across the $\Nanalyzed$ records with a classifiable paper outcome, $\Ndiscrepant$ ($\Ratetotal\%$) are discrepancies.  Those discrepancies that fall into our four categories are shaded: false positive (red), false negative (green), missing-in-TIBU (blue), and false transfer (orange). 
 
 \begin{table}[H]
     \centering
@@ -135,110 +182,72 @@ matched patients ($N = 3{,}370$). Counts on the diagonal are concordant; off-dia
     \resizebox{\textwidth}{!}{\input{tblSI_DQAcrosstab.tex}}
 \end{table}
 
-\subsection{When did errors occur?}
+\subsubsection{When did discrepancies occur?}
 \label{sec:errors_when}
 
 \setcounter{figure}{1}
-The TIBU dataset used for these analyses reflects a single final extract. The latest treatment-outcome dates cluster in late December 2021, and we treat the snapshot as having occurred on 1 January 2022. Figure~\ref{fig:over_time} plots DQA error rates against outcome date, estimated via locally-weighted regression (lowess); shaded bands show percentile bootstrap 95\% confidence intervals (500 resamples). For records that are missing in TIBU (and therefore have no TIBU outcome date), the paper-registry outcome date is used in its place, so that these records remain representable on the time axis.
+Figure~\ref{fig:over_time} plots each discrepancy rate over the study period (LOWESS smooth with percentile-bootstrap $95\%$ bands; Appendix~\ref{sec:appendix_smoothing}).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{fig_error_over_time.pdf}
-    \caption{DQA error rates over time by outcome date (TIBU when available, paper otherwise). Lowess smooth with percentile bootstrap 95\% CI bands.}
+    \caption{DQA discrepancy rates over time by outcome date (TIBU when available, paper otherwise). Lowess smooth with percentile bootstrap 95\% CI bands.}
     \label{fig:over_time}
 \end{figure}
 
-\noindent The dominant feature of the figure is a pronounced peak in the missing-in-TIBU rate (to roughly 15\%) for records with outcome dates in 2020 Q1--Q2, coinciding with the onset of the COVID-19 pandemic response in Kenya. Of the 116 missing-in-TIBU records in the classifiable sample, 63 fall in these two quarters. \texttt{NC} is a TIBU interim code denoting that treatment is still in progress; treating it as equivalent to blank (rather than as a medical failure) rolls the affected records into the missing-in-TIBU category, which accounts for 76 of the 116 (the remaining 40 have TIBU entirely blank). False-positive and false-negative rates are low and roughly flat across the study period.
+\noindent The missing-in-TIBU rate peaks at roughly $15\%$ for records with outcome dates in 2020 Q1--Q2; $59$ of the $114$ missing-in-TIBU records fall in these two quarters. Of all $114$ missing-in-TIBU records, $89$ carry the interim ``not completed'' code and $25$ are entirely blank. False-positive and false-negative rates are low and roughly flat across the study period. False transfers are concentrated among records registered in 2019 ($0.4\%$ of 2018 registrations versus $6.2\%$ of 2019) and peak at 2019 outcome dates.
 
-A sensitivity check using paper-registry outcome dates throughout (rather than TIBU date with paper fallback for missing-in-TIBU records) is reported in Appendix~\ref{sec:appendix_paper_dates}. The COVID-era spike in missing-in-TIBU remains clearly visible there, confirming that it is driven by when outcomes actually occurred (as captured on paper), not by when TIBU happened to record them.
+Broadly speaking, these patterns are also present when records are placed by their paper outcome date rather than TIBU's (Appendix~\ref{sec:appendix_paper_dates}).
 
-\subsection{Where did errors occur?}
+\subsubsection{Where did discrepancies occur?}
 \label{sec:errors_where}
 
-Table~\ref{tbl:clinic_errors} reports false-positive, false-negative, and missing-in-TIBU rates stratified by province, urbanicity, and clinic size. In the full sample (left panel), error rates appear elevated at small clinics, in two provinces (Eastern South and Rift Valley South), and in rural areas. However, this concentration traces almost entirely to two specific clinics (IDs 0 and 115), whose missing-in-TIBU rates of $12.7\%$ and $15.4\%$ are an order of magnitude above the study-wide rate of $3.8\%$. These two clinics are responsible for the COVID-era reporting gap visible in Figure~\ref{fig:over_time}: 50 of the 116 missing-in-TIBU records in the sample come from them, inidcating that at these clinics paper-registry entries continued through the pandemic but TIBU outcomes were largely not recorded. 
+Table~\ref{tbl:clinic_errors} reports the four discrepancy rates stratified by province, urbanicity, and clinic size. Missing-in-TIBU is elevated at small clinics, in rural areas, and in two provinces (Eastern South and Rift Valley South); false transfers are elevated in Nairobi and at larger clinics.
 
-The right panel of Table~\ref{tbl:clinic_errors} repeats the breakdown after excluding these clinics 0 and 115, to allow for a comparison of error rates with and without the COVID-era reporting gap.  Once those two clinics are removed, the missing-in-TIBU rate falls from $3.8\%$ to $2.4\%$, and the within-stratum rates flatten: the small-clinic missing rate drops from $5.1\%$ to $2.8\%$, the rural rate from $3.3\%$ to $0.9\%$, and the Eastern-South and Rift-Valley-South rates from $8.7\%$ and $7.7\%$ to $0.8\%$ and $0.0\%$ respectively. False-positive and false-negative rates barely move under the exclusion, consistent with their being dispersed across the country rather than concentrated. 
+Most discrepancies are concentrated in a handful of clinics (Table~\ref{tbl:culprit_clinics}). Missing-in-TIBU is concentrated in clinics 0 and 115 (rates of $14.1\%$ and $15.6\%$, roughly four times the study-wide $3.4\%$), which contribute 60 of the 114 missing-in-TIBU records. False transfers are concentrated in clinics 162 and 50, both in Nairobi (rates above $20\%$, five times the study-wide average). False positives are concentrated in clinic 482 alone (63 of the 134).
 
-A multivariate logistic regression with patient, clinic, and record-age covariates corroborates this picture (Appendix~\ref{sec:appendix_logit}): once the two clinics are excluded, the only systematic predictor of missing-in-TIBU is record age, and there is no evidence of patient- or clinic-level structural predictors.
+In multivariate models of missing-in-TIBU and false transfer (Appendix~\ref{sec:appendix_logit}), the associations with the share of male patients and with clinic size become non-significant once each outcome's two dominant clinics are excluded; only the association with record age partially remains.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by province, urbanicity, and clinic size; full sample (left panel) and excluding the two clinics responsible for the COVID-era missing-in-TIBU spike (right panel).}
+    \caption{DQA discrepancy rates by province, urbanicity, and clinic size.}
     \label{tbl:clinic_errors}
-    \resizebox{\textwidth}{!}{\input{tblSI_error_by_clinic_char.tex}}
+    \input{tblSI_error_by_clinic_char.tex}
 \end{table}
 
-\subsection{Who experienced errors?}
+\renewcommand{\thetable}{3b}
+\begin{table}[H]
+    \centering
+    \caption{Clinics in which discrepancies are concentrated. Discrepancies in the five clinics accounting for most discrepancies ($N$ and \%, the share of all records in that clinic containing a discrepancy). Discrepancies in all remaining clinics and the study-wide average are shown for reference.}
+    \label{tbl:culprit_clinics}
+    \input{tblSI_culprit_clinics.tex}
+\end{table}
+\setcounter{table}{3}
+\renewcommand{\thetable}{\arabic{table}}
+
+\subsubsection{Who experienced discrepancies?}
 \label{sec:errors_who}
 
-Table~\ref{tbl:patient_errors} reports the same error rates broken down by individual patient and disease characteristics, again with a side-by-side panel excluding the two COVID-impacted clinics. Errors and significant correlations present in the left panel attenuate sharply in the right: the missing-in-TIBU rate among males falls from $3.6\%$ to $1.2\%$, the rate among the 15--34 age band falls from $2.6\%$ to $0.9\%$, the HIV-positive rate from $3.0\%$ to $1.6\%$, and so on across all rows. False-positive and false-negative rates are largely unchanged. As with the clinic-level breakdown, the multivariate model in Appendix~\ref{sec:appendix_logit} confirms that no patient characteristic independently predicts missingness once the two clinics are excluded; the apparent demographic gradients in the left panel are picking up the demographic profile of those two clinics rather than any general pattern.
+Table~\ref{tbl:patient_errors} reports the discrepancy rates by individual and disease characteristics. Missing-in-TIBU is elevated among male patients ($3.8\%$), the 15--34 age band ($2.8\%$), and HIV-coinfected patients ($2.9\%$). In the multivariate model, no patient characteristic independently predicts missingness once the two clinics with the highest missing-in-TIBU rates are excluded, and the excess of false transfers among male patients does not persist once the two Nairobi clinics with the highest false-transfer rates are excluded (Appendix~\ref{sec:appendix_logit}). False-positive and false-negative rates show no notable associations with individual or disease characteristics.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by individual and disease characteristics; full sample (left panel) and excluding the two COVID-impacted clinics (right panel).}
+    \caption{DQA discrepancy rates by individual and disease characteristics.}
     \label{tbl:patient_errors}
-    \resizebox{\textwidth}{!}{\input{tblSI_error_by_patient_char.tex}}
+    \input{tblSI_error_by_patient_char.tex}
 \end{table}
 
-\iffalse  % --- §4.4 Record Age and Reporting Lag commented out (Apr 2026) ---
-\subsection{Record Age and Reporting Lag by Error Type}
-\label{sec:lag}
-
-Table~\ref{tbl:lag} reports two measures of record age at the TIBU extract snapshot, stratified by error type: (i) \textbf{record age}, measured from patient registration to the snapshot, and (ii) \textbf{reporting lag}, measured from the TIBU outcome date to the snapshot. The expected pattern under normal TIBU operation is a reporting lag of roughly 6--9 months after a drug-sensitive outcome date (to allow for paper-register close-out and clerical transcription); systematic deviations in the lag distribution across error categories can indicate particular failure modes.
-
-\begin{table}[H]
-    \centering
-    \caption{Record age and reporting lag (days) at the TIBU snapshot, by error category.}
-    \label{tbl:lag}
-    \input{tblSI_correction_lag.tex}
-\end{table}
-
-\noindent False-negative records have a notably longer reporting lag than no-error records (median $1{,}026$ vs.\ $850$ days) but a nearly identical record age (median $1{,}040$ vs.\ $1{,}004$ days). The asymmetry is informative. Reporting lag is measured from the \emph{TIBU} outcome date, which for a false-negative record is the early failure determination TIBU made (e.g., LTFU declared at month~6) rather than the later completion the patient actually reached: median TIBU outcome dates for false-negative records are roughly five months earlier than for no-error records, while median \emph{paper} outcome dates are only two months earlier. Record age, which depends only on registration date, shows no such gap---registration dates for both categories are drawn from the same April 2018--December 2019 window.
-
-\noindent Stratifying instead by paper outcome date (the ground-truth timestamp) shows a false-negative rate that is roughly flat across the study period (0.4--1.5\% per quarter from 2018 Q3 through 2020 Q2), and the 22 false-negative records are spread across 12 clinics with no overlap with the two clinics responsible for the COVID-era missing-in-TIBU spike. On this reading, the apparent concentration of false negatives at long reporting lags is largely an artifact of where TIBU's (incorrect) outcome date lands on the calendar---an early ``failed'' closure is mechanically older than a later ``completed'' closure would have been---rather than evidence of a temporal gradient in the underlying error rate.
-\fi  % --- end commented-out §4.4 ---
-
-\iffalse  % --- §4.6 Supplementary record-age views commented out (Apr 2026) ---
-\subsection{Supplementary views: error rates against record-age axes}
-
-Figures~\ref{fig:age_reg}--\ref{fig:density} present the same underlying data as Figure~\ref{fig:over_time} against record-age axes rather than calendar time; they are included as supplementary confirmation that the COVID-era missing-in-TIBU peak is not an artifact of the time axis. Figure~\ref{fig:age_reg} plots error rates against record age at snapshot (days from registration to 1 January 2022); Figure~\ref{fig:age_out} plots them against reporting lag (days from outcome date to snapshot, with the axis inverted so that calendar time reads left-to-right like Figure~\ref{fig:over_time}); Figure~\ref{fig:density} compares the empirical distributions of reporting lag across error categories. The COVID-era missing-in-TIBU peak is visible as a left-edge spike in Figure~\ref{fig:age_reg} (records registered in late 2019, whose treatments completed in 2020) and as a mid-2020 spike in Figure~\ref{fig:age_out}; Figure~\ref{fig:density} shows the missing-in-TIBU distribution shifted noticeably toward shorter reporting lags, which is the same COVID-era concentration viewed as a cumulative distribution.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{fig_error_by_age_reg.pdf}
-    \caption{DQA error rates by record age at TIBU snapshot (days since registration). Lowess smooth with percentile bootstrap 95\% CI bands.}
-    \label{fig:age_reg}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{fig_error_by_age_out.pdf}
-    \caption{DQA error rates by reporting lag (days from the outcome date to the TIBU snapshot); x-axis inverted so older outcomes are on the left and recent outcomes on the right. Lowess smooth with percentile bootstrap 95\% CI bands. For missing-in-TIBU records (TIBU blank) the paper-registry outcome date is used in place of the TIBU outcome date.}
-    \label{fig:age_out}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{fig_error_density.pdf}
-    \caption{Empirical cumulative distribution function (ECDF) of reporting lag, by error category; the curve at each $x$ gives the fraction of records in that category with reporting lag $\leq x$. Separation from the no-error curve indicates where on the age axis each error type concentrates.}
-    \label{fig:density}
-\end{figure}
-\fi  % --- end commented-out §4.6 ---
 
 % =============================================================================
-\section{Incorporating Date Fields to Assess Outcome Errors}
+\subsection{Incorporating Date Fields to Assess Outcome Discrepancies}
 \label{sec:date_errors}
 % =============================================================================
 
-Up to this point we have treated the paper register as ground truth. But the audit itself can err: through transcription mistakes, by matching a paper record to the wrong patient, or by transcribing an out-of-date entry for the right patient. The outcome-date comparison in this section speaks directly to the last of these failure modes.
-
-Although an audit of the date fields was not a priority of the trial's data-quality programme, the audit team transcribed dates alongside outcomes for $3{,}186$ of the $3{,}645$ audit records ($87.4\%$). A comparison of outcome dates from TIBU and the paper audit can provide insight on the nature of the inconsistency between TIBU and the paper records as digitized in the audit.
-
-For DQA-matched records where both the TIBU and paper outcome dates are parseable, we can compare the two directly (Table~\ref{tbl:date_agree} and Figure~\ref{fig:tibu_vs_paper_date}).
+We compare the TIBU and paper outcome dates for the DQA-matched records with parseable dates on both sides; the audit transcribed dates for $3{,}186$ of the $3{,}645$ records ($87.4\%$). Table~\ref{tbl:date_agree} and Figure~\ref{fig:tibu_vs_paper_date} report the comparison.
 
 \begin{table}[H]
     \centering
-    \caption{TIBU--paper outcome-date agreement, by outcome-error category.}
+    \caption{TIBU--paper outcome-date agreement, by outcome-discrepancy category.}
     \label{tbl:date_agree}
     \input{tblSI_date_agree.tex}
 \end{table}
@@ -246,89 +255,96 @@ For DQA-matched records where both the TIBU and paper outcome dates are parseabl
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.78\textwidth]{fig_tibu_vs_paper_date.pdf}
-    \caption{TIBU outcome date vs.\ paper outcome date for DQA-matched records with parseable dates on both sides (axes clipped to the 2018--2022 study window). Points on the $y=x$ dashed line agree exactly. False-positive points (red) sit predominantly above the line (TIBU later), false-negative points (green) predominantly below (TIBU earlier). The multiple parallel 45-degree lines arise because it is common for TIBU and the paper audit to disagree on the year of the record (without changing the recorded outcome).}
+    \caption{TIBU outcome date vs.\ paper outcome date for DQA-matched records with parseable dates on both sides (axes clipped to the 2018--2022 study window). Points on the $y=x$ dashed line agree exactly. Two distinct families of parallel structure appear. The coloured discrepancy bands lie one treatment course ($\sim$6 months) off the $y=x$ line (dash-dot reference lines): transfer-driven false positives (red) a course \emph{above} it and false transfers (orange) a course \emph{below}, mirror-image signatures of the transfer ``outcome date'' being pinned to registration. The fainter grey streaks lie one to two years off (dotted reference lines), where TIBU and the paper audit disagree on the record's year without changing the recorded outcome. False-negative points (green) sit modestly below the line. Missing-in-TIBU records cannot appear (TIBU has no outcome date); see Figure~\ref{fig:over_time} for their temporal pattern.}
     \label{fig:tibu_vs_paper_date}
 \end{figure}
 
-Among no-error records the two dates agree to within a week $\sim 78\%$ of the time, with a small symmetric tail. The pattern is qualitatively different for the two error classes: for false-positive records, TIBU is \emph{later} than the audit-transcribed paper date in $16$ of $23$ cases ($\sim 70\%$); for false-negative records, TIBU is \emph{earlier} in $13$ of $18$ ($\sim 72\%$). This suggests that the majority of apparent false positives are not in fact errors, but result from the paper audit occasionally having employed less up-to-date records than TIBU.
+Among concordant records the two dates agree to within a week $\sim 78\%$ of the time. The discrepancy classes differ (Table~\ref{tbl:date_agree}): for false positives, TIBU is \emph{later} than the paper date about three-quarters of the time; for false negatives, TIBU is \emph{earlier} about $70\%$ of the time; and for false transfers, TIBU is earlier in almost all cases ($\sim 95\%$), typically by about six months.
 
-Operationalizing this reading, we define a \emph{date-gated} sensitivity classification: a TIBU--paper outcome disagreement is counted as an error only when the paper outcome date is strictly later than the TIBU outcome date. When TIBU is the more recent reading, the record is treated as concordant on the assumption that TIBU reflects a post-audit paper update. Missing-in-TIBU is unchanged because TIBU is blank by construction. Table~\ref{tbl:sensitivity} shows the resulting headline-vs-gated comparison; under the gate, the false-positive rate falls by roughly half (from $1.05\%$ to $0.51\%$), the false-negative rate falls only slightly (from $0.71\%$ to $0.58\%$), and the missing-in-TIBU rate is unchanged ($3.79\%$). Equivalent breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under the date-gated definition are collected in Appendix~\ref{sec:appendix_gated}.
+Among the $167$ transfer-out disagreements---records where one register recorded a transfer-out and the other a real outcome---the transfer-out ``outcome date'' falls a median of $0$ days after registration (interquartile range $\pm 18$ days), whereas the real outcome on the other side falls a median of $172$ days after---one treatment course.
+
+Under the date-gated classification (a disagreement counts as a discrepancy only when the paper outcome date is strictly later than the TIBU outcome date), the false-positive rate falls from $4.05\%$ to $2.75\%$, the false-negative and false-transfer rates fall only slightly (from $0.91\%$ to $0.73\%$ and from $3.99\%$ to $3.81\%$), and missing-in-TIBU is unchanged ($3.45\%$; Table~\ref{tbl:sensitivity}). Breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under this definition are in Appendix~\ref{sec:appendix_gated}.
 
 \begin{table}[H]
     \centering
-    \caption{Headline vs.\ date-gated DQA error counts and rates.}
+    \caption{Headline vs.\ date-gated DQA discrepancy counts and rates.}
     \label{tbl:sensitivity}
     \input{tblSI_sensitivity.tex}
 \end{table}
 
-%%%% Everything after this comment is preserved but commented out.
-\iffalse
+% =============================================================================
+\section{Robustness to digitization errors}
+\label{sec:correction}
+% =============================================================================
+\subsection{Case Study}
+A researcher who employs a TIBU treatment outcome to develop their study's outcomes can use the discrepancy rates measured here to gauge the impact of digitization errors on their findings.  We now demonstrate such an analysis on the Keheala trial data.  
 
-
-
- but did not treat them as a priority. The paper-date column in the audit therefore cannot be treated as ground truth for date accuracy in the way that paper outcomes can. We consequently keep this section narrow, focused on what the date comparison reveals about the outcome-error counts in \S\ref{sec:outcome_errors} -- in particular, that many of the apparent false-positive records are not TIBU errors at all.
-
-\noindent \textbf{Caveat on the paper figures.} The audit team's primary focus was the treatment-outcome field; dates were transcribed alongside outcomes but were not a priority for careful entry. The paper-date issues in Table~\ref{tbl:date_quality} may therefore reflect the audit's transcription quality on the date column, not the underlying paper register.
-
-\subsection{Date completeness}
-
-Within TIBU, the registration, treatment-start, and outcome dates are each blank in $5$--$9\%$ of records (Table~\ref{tbl:date_quality}); the TIBU outcome date is the most often blank, the same failure mode driving the missing-in-TIBU rate in \S\ref{sec:outcome_errors}. The paper outcome-date column is more uneven, but per the caveat above, that figure reflects the audit transcription rather than the underlying register.
-
-\begin{table}[H]
-    \centering
-    \caption{Completeness and plausibility of date fields, by source.}
-    \label{tbl:date_quality}
-    \input{tblSI_date_quality.tex}
-\end{table}
-
-\iffalse  % --- §5.x Internal consistency + triangulation commented out (Apr 2026) ---
-\subsection{Internal consistency within TIBU}
-
-Given three TIBU date fields per record (clinical registration, treatment start, outcome), we can check whether they occur in the expected clinical order and whether the implied treatment duration is plausible. Table~\ref{tbl:date_consistency} reports violations. Roughly 6\% of records have an outcome date before the clinical registration date, 3\% have an outcome before treatment start, and 8\% imply a treatment duration under 30 days -- any of which would render the record's reporting-lag and age statistics unreliable.
-
-An additional quirk not tabulated: the clinical registration date (\texttt{dateofregistration}) is on or after the treatment-start date (\texttt{dateoftreatmentstarted}) in about 90\% of records, with a typical gap of a week or two. We read this as a TIBU data-entry convention (case formally registered into TIBU shortly after treatment initiation) rather than a data-quality issue, and therefore do not count it as a violation in the table.
-
-\begin{table}[H]
-    \centering
-    \caption{Internal consistency of TIBU date fields.}
-    \label{tbl:date_consistency}
-    \input{tblSI_date_consistency.tex}
-\end{table}
-
-\noindent \textbf{Triaging inconsistent records using the audit.} For a TIBU record with an internal inconsistency, which date field is wrong? If the record happens to be in the DQA-audited subset, the paper outcome date gives a second independent reading that can resolve the ambiguity. Table~\ref{tbl:date_triangulation} applies this to the three most common violation types. A simple heuristic decides each case: we call the TIBU \emph{outcome date} suspect when the paper outcome date is plainly later than the TIBU registration or treatment-start date (so the outcome really happened later than TIBU implies), and we call the TIBU outcome \emph{plausible} when the paper outcome date is within 30 days of the TIBU outcome date (the outcome really did occur early and the TIBU field just contradicts the registration side). Across the three violation types, the paper audit resolves roughly half of the DQA-matched cases in a clear direction, which gives TIBU researchers a workable recipe for salvaging individual records: an internally inconsistent TIBU record with a paper audit counterpart can often be fixed with a single-column edit informed by the paper date.
-
-\begin{table}[H]
-    \centering
-    \caption{Resolving TIBU internal-consistency violations via the paper audit date.}
-    \label{tbl:date_triangulation}
-    \input{tblSI_date_triangulation.tex}
-\end{table}
-\fi  % --- end commented-out §5.x ---
-
-\subsection{TIBU vs.\ paper outcome dates: many false positives are audit artifacts}
-
-For DQA-matched records where both the TIBU and paper outcome dates are parseable, we can compare the two directly (Table~\ref{tbl:date_agree} and Figure~\ref{fig:tibu_vs_paper_date}). Among no-error records the two dates agree to within a week $\sim 78\%$ of the time, with a small symmetric tail. The pattern is qualitatively different for the two error classes: for false-positive records, TIBU is \emph{later} than the audit-transcribed paper date in $16$ of $24$ cases ($\sim 2/3$); for false-negative records, TIBU is \emph{earlier} in $14$ of $19$ ($\sim 3/4$).
-
-\begin{table}[H]
-    \centering
-    \caption{TIBU--paper outcome-date agreement, by outcome-error category.}
-    \label{tbl:date_agree}
-    \input{tblSI_date_agree.tex}
-\end{table}
+The audit provides a full \emph{confusion matrix} between the TIBU-recorded outcome and the paper-register ground truth (Figure~\ref{fig:confusion}): most records are concordant---successes and failures agree $95\%$ and $91\%$ of the time---but a TIBU transfer-out is a real success or failure $51\%$ of the time, and a record missing from TIBU is a real outcome in $87\%$ of cases.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.75\textwidth]{fig_tibu_vs_paper_date.pdf}
-    \caption{TIBU outcome date vs.\ paper outcome date for DQA-matched records with parseable dates on both sides (axes clipped to the 2018--2022 study window). Points on the $y=x$ dashed line agree exactly; the faint dotted lines mark $y = x \pm 1$ and $\pm 2$ years. False-positive points (red) sit predominantly above the $y=x$ line (TIBU later), false-negative points (green) predominantly below (TIBU earlier).}
-    \label{fig:tibu_vs_paper_date}
+    \includegraphics[width=0.6\textwidth]{fig_confusion_matrix.pdf}
+    \caption{Audit confusion matrix: the TIBU-recorded outcome (rows) against the paper-register ground truth (columns), collapsed to success (C/TC), failure (D/F/LTFU), transfer-out, and---for TIBU only---missing/blank. Each cell gives the count and the row share.}
+    \label{fig:confusion}
 \end{figure}
 
-The false-positive pattern is the signature of an audit-snapshot artifact rather than a TIBU error. Each clinic's paper register continues to be updated as outcomes accrue; for a patient marked LTFU at month~3 on paper, then transcribed by the audit, who later returns and completes treatment, TIBU eventually reflects the completed outcome while the audit retains the earlier interim one. The TIBU outcome date in such a case lands \emph{after} the paper outcome date the audit captured -- exactly what we see in $\sim 2/3$ of false-positive records. The headline false-positive rate of $1.0\%$ in \S\ref{sec:outcome_errors} therefore likely overstates true TIBU misclassification; the residual is closer to $\sim 0.3\%$. By contrast, the false-negative and missing-in-TIBU rates are not affected by this caveat: paper at audit time clearly held a later outcome than TIBU's earlier closure (false negative), or paper had an outcome that TIBU never recorded at all (missing-in-TIBU). Both look like real TIBU lapses.
+To correct a reported outcome distribution we reclassify a study's recorded counts through this matrix. Writing $n_S, n_F, n_T$ for the numbers of recorded successes, failures, and transfers, the estimated true counts are $\hat n_c = \sum_{r} n_r\, P(\text{paper}=c \mid \text{TIBU}=r)$ for $c \in \{S, F, T\}$, and the corrected unsuccessful-outcome share is $\hat n_F / (\hat n_S + \hat n_F)$. This single step absorbs false positives, false negatives, and false transfers together. Where a study also reports records missing from TIBU, the missing row of the matrix is applied to them; because such records are usually absent from the analyzed data, this \emph{false-missing} correction is possible for a trial only if it also includes an audit.  
+Note that this correction assumes \emph{non-differential} misclassification---error rates that do not differ across the groups being compared. This is consistent with the findings of the Keheala trial \citep{yoeli2026digital}, and reasonable for overall unsuccessful rates or trials that, like the Keheala trial, randomize participants to treatments within clinic.
 
-\iffalse  % --- Year-offset typos (date-only finding, not focused on outcome errors) ---
-\noindent \textbf{Year-offset typos.} Figure~\ref{fig:tibu_vs_paper_date} reveals a second, distinct pattern: roughly $145$ matched records ($\sim 5\%$) fall on or near the $y = x + 365$d or $y = x + 730$d diagonals rather than on $y = x$. These are year-off typos -- same calendar day on both sides but a year (or two) apart. Almost all sit in the \emph{no-error} category ($145$ of $146$): a clerk mistyping the year does not change the recorded outcome, only the date attached to it. Year-offset typos do not drive outcome disagreements but would distort any analysis that uses TIBU or paper dates as axes if not censored.
-\fi  % --- end commented-out year-offset paragraph ---
-\fi  % --- end of section commented out per user marker (Apr 2026) ---
+Among the $14{,}899$ Keheala study-clinic TIBU records with a classifiable success or failure outcome, the reported unsuccessful-outcome share is $10.50\%$. Reclassifying its successes, failures, and $620$ transfer-outs through the matrix raises this to $11.20\%$ at the audit rates ($11.92\%$ at twice the rates); applying the missing row to the $1{,}060$ TIBU-missing records raises it marginally further, to $11.31\%$.
+
+
+\subsection{The impact of digitization errors on prior research}
+Table~\ref{tbl:literature_correction} applies the same correction to the reported unsuccessful-outcome share of four previous TIBU-based studies, identified in a screen of the works cited in the introduction. For Keheala \citep{yoeli2026digital} and \citet{kosgei2020gender} we additionally correct the study's focal across-group difference---the Keheala-versus-control arm difference and the female-versus-male difference, respectively. In every case the overall rate moves by less than a percentage point, and the focal difference \emph{attenuates} slightly toward zero (the expected effect of non-differential misclassification) while remaining statistically significant even at twice the audit's error rates.
+
+\begin{table}[H]
+    \centering
+    \caption{The impact of digitization error correction on the share of unsuccessful outcomes across previous studies that rely on TIBU. Unsuccessful outcomes are D/F/LTFU and successful are C/TC. The overall rate corrects false positives, false negatives, and false transfers by reclassifying each study's outcome counts through the audit confusion matrix (Figure~\ref{fig:confusion}); ``$2\times$'' doubles the off-diagonal (error) rates as a sensitivity bound. The focal across-group difference (percentage points, bootstrap $95\%$ CIs) is the Keheala-versus-control arm difference for Keheala and the female-versus-male difference for Kosgei. $^{\dagger}$Katana et al.'s poor-outcome components sum to $2{,}398$ against a stated $2{,}408$; the gap is immaterial to the correction. $^{\ddagger}$Kosgei et al.\ analyse a cured-versus-died cohort with no transfer-outs, so only the false-positive/false-negative correction applies and ``unsuccessful'' denotes death.}
+    \label{tbl:literature_correction}
+    {\small\input{tblSI_literature_correction.tex}}
+\end{table}
+
+
+\section{Discussion}
+% =============================================================================
+We find that TIBU concords with the clinics' paper registers on $\Rateconcord\%$ of treatment outcomes.  
+Discrepancies are concentrated at a small number of clinics and, for records missing from TIBU, in the early-2020 onset of the COVID-19 pandemic.  Outright flips between successful (C, TC) and unsuccessful outcomes (LTFU, F, D) are rare: conditionally, a TIBU-recorded success is a failure on-paper just $\RateSuccToFail\%$ of the time and a TIBU-recorded failure a success on-paper $\RateFailToSucc\%$.  Our exploratory analyses using date fields suggest that some of these apparent flips are likely audit artifacts: half of the success-to-failure disagreements ($15$ of $30$) carry an earlier paper date than TIBU, consistent with TIBU holding the later, correct outcome.  This lowers the success-to-failure flip rate to $\sim$0.6\%.
+
+Particularly for studies that span multiple treatment sites and focus on treatment success, these findings raise confidence in TIBU as a reliable source of data.  Our overall concordance rate is much higher than that found by the 2015 TIBU audit \citep{sharma2015dataquality} and similar to the rates reported by Kenya's NTLD-P \citep{ntldp2022dqa}.  The findings of several past studies \citep{kosgei2020gender, katana2022kilifi, ngari2023burden, ngari2025mortality} are robust to correction for digitization errors.
+
+Our finding that discrepancies are concentrated both temporally and at the clinic level can, we hope, be helpful in further improving TIBU's concordance with clinics' paper registries, as it suggests it is not day-to-day procedures, but unexpected, temporary clinic-level contingencies which most negatively impact TIBU concordance.  These findings also mean that digitization correction of between-site comparisons benefits from site-specific discrepancy rates.
+
+Finally, our experience highlights the benefits of high-fidelity digitization of fields other than outcomes, such as dates, during an audit.  These fields are valuable of their own right, and can help when, e.g., determining whether the source of a discrepancy is an error in TIBU, or in the audit itself. 
+
+To existing audits, this study adds: independence from NTLD-P, a large sample encompassing many patients across a substantial number of treatment sites with ample temporal variation within clinics, and breakdowns of discrepancies by type.  
+The study's primary limitations are those noted at the outset: our sample was selected from the Keheala trial's \citep{yoeli2026digital} participating clinics, which limited its representativeness of all of Kenya's treatment facilities; and it focused on the outcome field alone, which both narrowed the analyses we could undertake and, because other fields---including dates---were not transcribed with the same care, left our date-based analyses exploratory.  TIBU would still benefit from a comprehensive, systematically sampled audit.
+
+
+
+
+
+
+
+\bibliographystyle{unsrtnat}
+\bibliography{tibu_dqa}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 % =============================================================================
 % --- Appendix divider page ---
@@ -344,6 +360,13 @@ The false-positive pattern is the signature of an audit-snapshot artifact rather
 \appendix
 
 % =============================================================================
+\section{Smoothing and confidence bands}
+\label{sec:appendix_smoothing}
+% =============================================================================
+
+The time series of \S\ref{sec:errors_when} is estimated nonparametrically. For a given discrepancy type, each analyzed record contributes a binary indicator---$1$ if the record is that type of discrepancy and $0$ otherwise---placed on the horizontal axis by its outcome date (the TIBU outcome date where available, or the paper-registry outcome date for missing-in-TIBU records, which have no TIBU date). We smooth this indicator against outcome date by locally-weighted scatterplot smoothing (LOWESS): at each point a tricube-weighted local linear regression is fit to the nearest $35\%$ of records (smoothing span $0.35$, no robustifying iterations), so the fitted value estimates the probability that a record with that outcome date is a discrepancy of the given type---the local discrepancy rate. Pointwise $95\%$ confidence bands are obtained by a percentile bootstrap: the records are resampled with replacement $500$ times, the LOWESS curve is refit on each resample and evaluated on a common grid of $60$ points spanning the 1st--99th percentiles of the outcome-date range, and the $2.5$th and $97.5$th percentiles of the bootstrap curves are taken at each grid point; a curve is drawn only where at least $30$ records are available. The same estimator produces the paper-date and date-gated sensitivity versions of the figure (Appendices~\ref{sec:appendix_paper_dates} and~\ref{sec:appendix_gated}), differing only in the date used for the axis or the discrepancy definition.
+
+% =============================================================================
 \section{Sensitivity check: paper-registry outcome dates}
 \label{sec:appendix_paper_dates}
 % =============================================================================
@@ -353,52 +376,57 @@ Figure~\ref{fig:over_time_paper} replays the over-time analysis of \S\ref{sec:ou
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{fig_error_over_time_paper.pdf}
-    \caption{DQA error rates over time using paper-registry outcome dates throughout. Records without a parseable paper date are excluded. Compare with Figure~\ref{fig:over_time}.}
+    \caption{DQA discrepancy rates over time using paper-registry outcome dates throughout. Records without a parseable paper date are excluded. Compare with Figure~\ref{fig:over_time}.}
     \label{fig:over_time_paper}
 \end{figure}
 
 % =============================================================================
-\section{Error rates under the date-gated definition}
+\section{Discrepancy rates under the date-gated definition}
 \label{sec:appendix_gated}
 % =============================================================================
 
-This appendix recreates the breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under the date-gated classification introduced in \S\ref{sec:date_errors}. A matched record is counted as a TIBU error only if the TIBU and paper outcomes disagree \emph{and} the paper outcome date is strictly later than the TIBU outcome date; otherwise, on the reading that TIBU may reflect a post-audit paper update, the record is treated as concordant. Missing-in-TIBU is unchanged because TIBU is blank by construction. Records with an unparseable date on either side preserve their headline classification ($n = 8$ false-positive and $n = 3$ false-negative records). Headline-vs-gated marginal totals are in Table~\ref{tbl:sensitivity}. As in the body, each table presents two side-by-side panels: the full classifiable sample on the left, and the same breakdown excluding the two COVID-impacted clinics on the right.
+This appendix recreates the breakdowns of Tables~\ref{tbl:clinic_errors} and~\ref{tbl:patient_errors} and Figure~\ref{fig:over_time} under the date-gated classification introduced in \S\ref{sec:date_errors}. A matched record is counted as a discrepancy only if the TIBU and paper outcomes disagree \emph{and} the paper outcome date is strictly later than the TIBU outcome date; otherwise, on the reading that TIBU may reflect a post-audit paper update, the record is treated as concordant. Missing-in-TIBU is unchanged because TIBU is blank by construction. Records with an unparseable date on either side preserve their headline classification ($n = 77$ false-positive and $n = 9$ false-negative records). Headline-vs-gated marginal totals are in Table~\ref{tbl:sensitivity}.
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by province, urbanicity, and clinic size, under the date-gated definition. Compare with Table~\ref{tbl:clinic_errors}.}
+    \caption{DQA discrepancy rates by province, urbanicity, and clinic size, under the date-gated definition. Compare with Table~\ref{tbl:clinic_errors}.}
     \label{tbl:clinic_errors_gated}
-    \resizebox{\textwidth}{!}{\input{tblSI_error_by_clinic_char_gated.tex}}
+    \input{tblSI_error_by_clinic_char_gated.tex}
 \end{table}
 
 \begin{table}[H]
     \centering
-    \caption{DQA error rates by individual and disease characteristics, under the date-gated definition. Compare with Table~\ref{tbl:patient_errors}.}
+    \caption{DQA discrepancy rates by individual and disease characteristics, under the date-gated definition. Compare with Table~\ref{tbl:patient_errors}.}
     \label{tbl:patient_errors_gated}
-    \resizebox{\textwidth}{!}{\input{tblSI_error_by_patient_char_gated.tex}}
+    \input{tblSI_error_by_patient_char_gated.tex}
 \end{table}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{fig_error_over_time_gated.pdf}
-    \caption{DQA error rates over time, under the date-gated definition. Compare with Figure~\ref{fig:over_time}.}
+    \caption{DQA discrepancy rates over time, under the date-gated definition. Compare with Figure~\ref{fig:over_time}.}
     \label{fig:over_time_gated}
 \end{figure}
 
 % =============================================================================
-\section{Multivariate predictors of missing-in-TIBU}
+\section{Multivariate predictors of missing-in-TIBU and false transfer}
 \label{sec:appendix_logit}
 % =============================================================================
 
-The marginal breakdowns in \S\S\ref{sec:errors_where} and \ref{sec:errors_who} stratify error rates one characteristic at a time, leaving open whether apparent associations reflect that characteristic or a correlated confound. Table~\ref{tbl:logit_errors} reports a logistic regression of missing-in-TIBU on individual, clinic, and record-age covariates jointly, with province fixed effects. We restrict to missing-in-TIBU because the false-positive and false-negative rates (31 and 21 events respectively) are too low to identify a multivariate model with province FE; the marginal evidence for those error types is in Tables~\ref{tbl:clinic_errors}--\ref{tbl:patient_errors}, and false positives are in any case dominated by audit-snapshot artifacts (\S\ref{sec:date_errors}). The first column uses the full classifiable sample; the second column excludes the two clinics responsible for the COVID-era reporting gap (clinic IDs 0 and 115, together $\approx 43\%$ of missing-in-TIBU events) as a sensitivity check, since events concentrated in those two clinics could otherwise drive coefficients on covariates merely correlated with their idiosyncratic profile.
+The marginal breakdowns in \S\S\ref{sec:errors_where} and \ref{sec:errors_who} stratify discrepancy rates one characteristic at a time, leaving open whether apparent associations reflect that characteristic or a correlated confound. Table~\ref{tbl:logit_errors} reports logistic regressions of the two discrepancy categories with enough events to identify a multivariate model---missing-in-TIBU and false transfer---on individual, clinic, and record-age covariates jointly. (We model these two rather than false positives or false negatives because false negatives are rare ($\Nfn$ events) and false positives---though numerous ($\Nfp$)---are dominated by audit-snapshot artifacts that the date-gated analysis strips out (\S\ref{sec:date_errors}); their marginal evidence is in Tables~\ref{tbl:clinic_errors}--\ref{tbl:patient_errors}.) Missing-in-TIBU is modelled with province fixed effects; the sparser false-transfer outcome is not, as too few false transfers occur per province to identify province effects (the cluster-robust covariance degenerates). For each outcome, the first column uses the full classifiable sample and the second excludes that outcome's own two dominant clinics (Table~\ref{tbl:culprit_clinics})---clinics 0 and 115 for missing-in-TIBU, clinics 162 and 50 for false transfer---as a sensitivity check, since events concentrated in a couple of clinics could otherwise drive coefficients on covariates merely correlated with their idiosyncratic profile.
 
 \begin{table}[H]
     \centering
-    \caption{Average marginal effects on the probability of missing-in-TIBU, in percentage points; cluster-robust standard errors (by clinic) in parentheses.}
+    \caption{Average marginal effects on the probability of missing-in-TIBU and of false transfer, in percentage points; cluster-robust standard errors (by clinic) in parentheses.}
     \label{tbl:logit_errors}
     {\footnotesize\input{tblSI_logit_errors.tex}}
 \end{table}
 
-Removing the two COVID clinics collapses both nominally interesting non-temporal coefficients. The point estimate on \emph{Male} moves from $+2.6$~pp to $-0.3$~pp, and the estimate on \emph{Clinic size} moves from $-1.0$~pp/log-patient to $+0.3$~pp; neither is statistically significant in either specification, but the full-sample estimates were suggestive enough to warrant the check. \emph{Record age} survives in both columns but its magnitude more than halves (from $-8.4$ to $-3.6$~pp/year, with significance falling from $p < 0.001$ to $p < 0.05$). We read this as a mostly mechanical reporting-lag effect: at any fixed snapshot date, more recent records have had less time to be transcribed into TIBU. The two COVID clinics inflate the slope because their missing-in-TIBU records cluster in the late, COVID-affected portion of the registration window. Outside those two clinics, neither patient demographics nor clinic-level structural features predict TIBU missingness in this sample; the only systematic signal is a modest record-age gradient consistent with reporting lag.
+For \textbf{missing-in-TIBU}, removing the two COVID clinics collapses both nominally interesting non-temporal coefficients. The point estimate on \emph{Male} moves from $+2.8$~pp to $-0.2$~pp, and the estimate on \emph{Clinic size} from $-1.0$~pp/log-patient to $+0.2$~pp; neither is statistically significant in either specification. \emph{Record age} survives in both columns but its magnitude more than halves (from $-8.4$ to $-3.4$~pp/year, with significance falling from $p < 0.001$ to $p < 0.05$). We read this as a mostly mechanical reporting-lag effect: at any fixed snapshot date, more recent records have had less time to be transcribed into TIBU. The two COVID clinics inflate the slope because their missing-in-TIBU records cluster in the late, COVID-affected portion of the registration window. Outside those two clinics, neither patient demographics nor clinic-level structural features predict TIBU missingness; the only systematic signal is a modest record-age gradient consistent with reporting lag.
+
+\textbf{False transfer} tells the same story as missingness, one clinic-set over. In the full sample three covariates reach significance---\emph{Male} ($+2.2$~pp), \emph{Clinic size} ($+1.4$~pp per log-patient), and \emph{Record age} ($-5.4$~pp/year)---but all three collapse to non-significance once the two Nairobi clinics that drive false transfers (162 and 50) are excluded: Male falls to $+1.9$~pp, Clinic size flips to $-1.1$~pp, and Record age to $-3.2$~pp, none significant, while the event count falls from $130$ to $44$. (At $44$ events that column is underpowered and should be read only for the disappearance of the full-sample signals, not for new ones---the lone significant coefficient there, on HIV status, is a small-sample artifact.) The apparent male and high-volume-clinic tendencies are therefore not a general labelling practice but the profile of those two clinics---just as the demographic gradients in missingness were the profile of clinics 0 and 115. Both discrepancy types are thus localized two-clinic phenomena rather than TIBU-wide patterns, each with its own pair of clinics.
+
+
+
 
 \end{document}

@@ -95,16 +95,20 @@ def clean_dqa_data():
         if pd.isna(x): return x
         x = x.strip()
         if x == "LFTU": return "LTFU"
-        if x in ["TF", "CATIV"]: return "F"
+        if x in ["TF", "CATIV", "CAT 4"]: return "F"
         if x == "NF": return "" # Stata: replace with empty string
+        if x == "MT4": return "TO"          # DR-TB referral: a transfer-out
+        if x in ["N/A", "NTB"]: return ""   # not an auditable outcome -> blank
         return x
 
     df["treatmentoutcome"] = df["treatmentoutcome"].apply(clean_outcome)
-    
-    # Drop specific excluded outcomes
-    drop_outcomes = ["MT4", "TO", "N/A", "NTB"]
-    df = df[~df["treatmentoutcome"].isin(drop_outcomes)]
-    
+
+    # NB: transfer-out (TO, incl. recoded MT4) is retained here so the canonical
+    # exclusion cascade (_build_error_df / write_cascade_macros) can count it
+    # explicitly. Under the ground-truth (B2) rule, paper TO is excluded there,
+    # not silently dropped at load. Blank/NC paper outcomes are likewise carried
+    # through and excluded downstream as uncheckable.
+
     # Drop missing identifiers
     df = df.dropna(subset=["scrn"])
     
@@ -237,9 +241,13 @@ def generate_crosstab_table(main_df, dqa_df):
         print("Error: 'scrn' missing from main data")
         return
 
-    # Merge
-    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
-    print(f"Matched Records (Crosstab): {len(merged)}")
+    # Restrict to the canonical located sample (audited subcounties, deduped) so
+    # the crosstab N matches the exclusion cascade. Paper transfer-out and blank
+    # rows are retained here for transparency (they are excluded downstream when
+    # computing error rates, not hidden from the reader).
+    selected = _selected_sample(main_df, dqa_df)
+    merged = pd.merge(selected, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
+    print(f"Located Records (Crosstab): {len(merged)}")
     
     # Recode NaNs to "Blank"
     merged["to_tibu_clean"] = merged["treatmentoutcome"].fillna("Blank")
@@ -263,12 +271,15 @@ def generate_crosstab_table(main_df, dqa_df):
             if ct.loc[r, c] == 0:
                 print(f"  TIBU={r}, Paper={c}: 0")
 
-    good_t = {"C", "TC"}
-    bad_t  = {"D", "F", "LTFU", "NC", "Blank"}
-    good_p = {"C", "TC"}
-    bad_p  = {"D", "F", "LTFU"}
+    # Three-outcome model for colouring: success / failure / transfer, with
+    # blank+NC as the TIBU "missing" rows and the real paper columns.
+    succ   = {"C", "TC"}
+    fail   = {"D", "F", "LTFU"}
+    transf = {"TO"}
+    miss_t = {"Blank", "NC"}
+    real_p = {"C", "TC", "D", "F", "LTFU", "TO"}
 
-    col_order = ["Blank", "C", "D", "F", "LTFU", "TC", "Total"]
+    col_order = ["Blank", "C", "D", "F", "LTFU", "NC", "TC", "TO", "Total"]
     row_order = ["Blank", "C", "D", "F", "LTFU", "N/A", "NC", "TC", "TO", "Total"]
 
     data_cols = [c for c in col_order if c != "Total"]  # 6 cols, each split into N + (%)
@@ -310,12 +321,14 @@ def generate_crosstab_table(main_df, dqa_df):
                 pct = (raw / row_total * 100) if row_total > 0 else 0
                 n_str = f"{raw:,}"
                 p_str = rf"({pct:.1f}\%)"
-                if row_idx == "Blank" and col != "Blank":
-                    color = "blue"
-                elif row_idx in good_t and col in bad_p:
-                    color = "red"
-                elif row_idx in bad_t and col in good_p:
-                    color = "green!60!black"
+                if row_idx in succ and col in (fail | transf):
+                    color = "red"                       # false positive
+                elif row_idx in fail and col in (succ | transf):
+                    color = "green!60!black"            # false negative
+                elif row_idx in transf and col in (succ | fail):
+                    color = "orange!85!black"           # false transfer
+                elif row_idx in miss_t and col in real_p:
+                    color = "blue"                      # missing in TIBU
                 else:
                     color = None
                 if color:
@@ -331,9 +344,11 @@ def generate_crosstab_table(main_df, dqa_df):
     latex_lines.append(r"\usebox{\DQACrosstabBox}")
     latex_lines.append(r"\par\vspace{4pt}\noindent")
     latex_lines.append(
-        r"\textit{Note:} Percentages are row shares. \\"
-        r"\textcolor{red}{Red} = False positive (TIBU: success; paper: failure). \\"
-        r"\textcolor{green!60!black}{Green} = False negative (TIBU: failure; paper: success). \\"
+        r"\textit{Note:} Percentages are row shares. Transfer-out (TO) is a documented outcome; a "
+        r"disagreeing TIBU value is a discrepancy named after what TIBU recorded. \\"
+        r"\textcolor{red}{Red} = False positive (TIBU: success; paper: failure or transfer). \\"
+        r"\textcolor{green!60!black}{Green} = False negative (TIBU: failure; paper: success or transfer). \\"
+        r"\textcolor{orange!85!black}{Orange} = False transfer (TIBU: transfer; paper: a real success/failure). \\"
         r"\textcolor{blue}{Blue} = Missing in TIBU (TIBU: no outcome; paper: outcome present)."
     )
     latex_lines.append(r"\end{minipage}")
@@ -473,81 +488,88 @@ def generate_patient_characteristics_table(main_df, dqa_df):
     bad_outcomes = ["D", "F", "LTFU"]
     tibu_full["unsuccessful_tibu"] = tibu_full["treatmentoutcome"].isin(bad_outcomes).astype(float)
 
-    # --- Column 2: Study clinics, TIBU (MITT sample) ---
-    df_study = main_df[main_df["MITT"] == 1].copy()
+    # --- Five nested cohorts (all characteristics drawn from the TIBU digital
+    #     record; the audit did not re-digitize demographics) ---
+    #       1. All TIBU nationwide
+    #       2. Participating clinics (all TIBU patients at trial clinics)
+    #       3. Selected  (TIBU patients in the audited subcounties)
+    #       4. Located   (selected patients found in the paper registry)
+    #       5. Analyzed  (located, paper classifiable, paper != TO)
+    main_dedup  = _dedup_main(main_df)
+    df_selected = _selected_sample(main_df, dqa_df)
+    matched     = set(dqa_df["scrn"]) & set(main_dedup["scrn"])
+    df_located  = df_selected[df_selected["scrn"].isin(matched)]
+    df_analyzed = _build_error_df(main_df, dqa_df)
 
-    # --- Column 3: Study clinics, paper records (DQA-matched patients' TIBU characteristics) ---
-    df_paper = pd.merge(main_df, dqa_df[["scrn"]], on="scrn", how="inner")
+    # characteristic -> column name, for the nationwide file vs. main_df subsets
+    C_TIBU = dict(male="male_tibu", age="age_years", bact="bact_confirmed_tibu",
+                  dr="drugresistant_tibu", ep="extrapulmonary_tibu",
+                  hiv="hiv_pos_tibu", retreat="retreatment_tibu",
+                  outcome="treatmentoutcome")
+    C_MAIN = dict(male="male", age="age_in_years", bact="bacteriologically_confirmed",
+                  dr="drugresistant", ep="extrapulmonary", hiv="hiv_positive",
+                  retreat="retreatment", outcome="treatmentoutcome")
 
-    N_tibu  = len(tibu_full)
-    N_study = len(df_study)
-    N_paper = len(df_paper)
+    cohorts = [
+        ("All\\\\TIBU",              tibu_full,   C_TIBU),
+        ("Participating\\\\clinics", main_dedup,  C_MAIN),
+        ("Selected",                 df_selected, C_MAIN),
+        ("Located",                  df_located,  C_MAIN),
+        ("Analyzed",                 df_analyzed, C_MAIN),
+    ]
+    n_cohorts = len(cohorts)
 
-    def pct_tibu(series):
-        v = pd.to_numeric(series, errors="coerce")
-        return f"{v.mean()*100:.1f}"
+    def row_char(label, key):
+        cells = []
+        for _, df, cm in cohorts:
+            v = pd.to_numeric(df[cm[key]], errors="coerce")
+            cells += [f"{int(v.sum()):,}", rf"({v.mean()*100:.1f}\%)"]
+        return rf"\quad {label} & " + " & ".join(cells) + r" \\"
 
-    def pct(series):
-        v = pd.to_numeric(series, errors="coerce")
-        return f"{v.mean()*100:.1f}"
+    def row_age(label):
+        cells = []
+        for _, df, cm in cohorts:
+            v = pd.to_numeric(df[cm["age"]], errors="coerce")
+            cells += [f"{v.mean():.1f}", ""]
+        return rf"\quad {label} & " + " & ".join(cells) + r" \\"
 
-    def npct_tibu(series):
-        v = pd.to_numeric(series, errors="coerce")
-        n = int(v.sum())
-        p = v.mean() * 100
-        return rf"{n:,} & ({p:.1f}\%)"
+    def row_outcome(label, code):
+        cells = []
+        for _, df, cm in cohorts:
+            oc = df[cm["outcome"]]
+            n = oc.isna().sum() if code is None else (oc == code).sum()
+            p = oc.isna().mean()*100 if code is None else (oc == code).mean()*100
+            cells += [f"{int(n):,}", rf"({p:.1f}\%)"]
+        return rf"\quad {label} & " + " & ".join(cells) + r" \\"
 
-    def npct(series):
-        v = pd.to_numeric(series, errors="coerce")
-        n = int(v.sum())
-        p = v.mean() * 100
-        return rf"{n:,} & ({p:.1f}\%)"
-
-    def mean_val(series):
-        v = pd.to_numeric(series, errors="coerce")
-        return f"{v.mean():.1f}"
+    blank_row = lambda title: rf"{title} & " + " & ".join([""]*(2*n_cohorts)) + r" \\"
+    col_spec = "l" + "|rr" * n_cohorts
 
     def header_lines():
+        mids = []
+        for lab, df, _ in cohorts:
+            mids.append(rf"\multicolumn{{2}}{{c}}{{\shortstack{{{lab}\\(N={len(df):,})}}}}")
         return [
-            r"Characteristic"
-            r" & \multicolumn{4}{c}{Digital}"
-            r" & \multicolumn{2}{c}{Paper} \\",
-            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{All \\ (N={N_tibu:,})}}}}"
-            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{Study clinics \\ (N={N_study:,})}}}}"
-            rf" & \multicolumn{{2}}{{c}}{{\shortstack{{Study clinics \\ (N={N_paper:,})}}}} \\",
-            r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\ \hline \\[-8pt]",
+            r" & " + " & ".join(mids) + r" \\",
+            r" & " + " & ".join([r"$N$ & (\%)"] * n_cohorts) + r" \\ \hline \\[-8pt]",
         ]
 
     # --- Table 1a: Patient and disease characteristics ---
     lines_1a = []
     lines_1a.append(r"\scriptsize{")
-    lines_1a.append(r"\begin{tabular}{lrr|rr|rr}")
+    lines_1a.append(rf"\begin{{tabular}}{{{col_spec}}}")
     lines_1a.append(r"\hline\hline \\[-8pt]")
     lines_1a.extend(header_lines())
 
-    lines_1a.append(r"\textit{Individual characteristics} & & & & & & \\")
-    lines_1a.append(
-        rf"\quad Male & {npct_tibu(tibu_full['male_tibu'])} & {npct(df_study['male'])} & {npct(df_paper['male'])} \\"
-    )
-    lines_1a.append(
-        rf"\quad Mean age (years) & {mean_val(tibu_full['age_years'])} & & {mean_val(df_study['age_in_years'])} & & {mean_val(df_paper['age_in_years'])} & \\"
-    )
-    lines_1a.append(r"\rule{0pt}{14pt}\textit{Disease characteristics} & & & & & & \\")
-    lines_1a.append(
-        rf"\quad Bacteriologically confirmed & {npct_tibu(tibu_full['bact_confirmed_tibu'])} & {npct(df_study['bacteriologically_confirmed'])} & {npct(df_paper['bacteriologically_confirmed'])} \\"
-    )
-    lines_1a.append(
-        rf"\quad Drug resistant & {npct_tibu(tibu_full['drugresistant_tibu'])} & {npct(df_study['drugresistant'])} & {npct(df_paper['drugresistant'])} \\"
-    )
-    lines_1a.append(
-        rf"\quad Extrapulmonary TB & {npct_tibu(tibu_full['extrapulmonary_tibu'])} & {npct(df_study['extrapulmonary'])} & {npct(df_paper['extrapulmonary'])} \\"
-    )
-    lines_1a.append(
-        rf"\quad HIV coinfection & {npct_tibu(tibu_full['hiv_pos_tibu'])} & {npct(df_study['hiv_positive'])} & {npct(df_paper['hiv_positive'])} \\"
-    )
-    lines_1a.append(
-        rf"\quad Retreatment & {npct_tibu(tibu_full['retreatment_tibu'])} & {npct(df_study['retreatment'])} & {npct(df_paper['retreatment'])} \\"
-    )
+    lines_1a.append(blank_row(r"\textit{Individual characteristics}"))
+    lines_1a.append(row_char("Male", "male"))
+    lines_1a.append(row_age("Mean age (years)"))
+    lines_1a.append(blank_row(r"\rule{0pt}{14pt}\textit{Disease characteristics}"))
+    lines_1a.append(row_char("Bacteriologically confirmed", "bact"))
+    lines_1a.append(row_char("Drug resistant", "dr"))
+    lines_1a.append(row_char("Extrapulmonary TB", "ep"))
+    lines_1a.append(row_char("HIV coinfection", "hiv"))
+    lines_1a.append(row_char("Retreatment", "retreat"))
 
     lines_1a.append(r"\hline\hline")
     lines_1a.append(r"\end{tabular}}")
@@ -557,14 +579,14 @@ def generate_patient_characteristics_table(main_df, dqa_df):
         f.write("\n".join(lines_1a))
     print(f"Saved {out_1a}")
 
-    # --- Table 1b: Outcomes ---
+    # --- Table 1b: Outcomes (TIBU-recorded outcome across the five cohorts) ---
     lines_1b = []
     lines_1b.append(r"\scriptsize{")
-    lines_1b.append(r"\begin{tabular}{lrr|rr|rr}")
+    lines_1b.append(rf"\begin{{tabular}}{{{col_spec}}}")
     lines_1b.append(r"\hline\hline \\[-8pt]")
     lines_1b.extend(header_lines())
 
-    lines_1b.append(r"\textit{Outcomes} & & & & & & \\")
+    lines_1b.append(blank_row(r"\textit{Outcomes}"))
     for code, label in [
         ("C",    "Cured"),
         ("TC",   "Treatment completed"),
@@ -573,27 +595,9 @@ def generate_patient_characteristics_table(main_df, dqa_df):
         ("LTFU", "Lost to follow-up"),
         ("NC",   "Not completed"),
         ("TO",   "Transfer out"),
-        ("NTB",  "Not TB"),
         (None,   "Missing"),
     ]:
-        if code is None:
-            t_n = tibu_full['treatmentoutcome'].isna().sum()
-            t_pct = tibu_full['treatmentoutcome'].isna().mean()*100
-            s_n = df_study['treatmentoutcome'].isna().sum()
-            s_pct = df_study['treatmentoutcome'].isna().mean()*100
-            p_n = df_paper['treatmentoutcome'].isna().sum()
-            p_pct = df_paper['treatmentoutcome'].isna().mean()*100
-        else:
-            t_n = (tibu_full['treatmentoutcome'] == code).sum()
-            t_pct = (tibu_full['treatmentoutcome'] == code).mean()*100
-            s_n = (df_study['treatmentoutcome'] == code).sum()
-            s_pct = (df_study['treatmentoutcome'] == code).mean()*100
-            p_n = (df_paper['treatmentoutcome'] == code).sum()
-            p_pct = (df_paper['treatmentoutcome'] == code).mean()*100
-        t = rf"{t_n:,} & ({t_pct:.1f}\%)"
-        s = rf"{s_n:,} & ({s_pct:.1f}\%)"
-        p = rf"{p_n:,} & ({p_pct:.1f}\%)"
-        lines_1b.append(rf"\quad {label} & {t} & {s} & {p} \\")
+        lines_1b.append(row_outcome(label, code))
 
     lines_1b.append(r"\hline\hline")
     lines_1b.append(r"\end{tabular}}")
@@ -640,9 +644,10 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     panels.
     """
     suffix = "_gated" if gated else ""
-    fp_col = "type1_gated"        if gated else "type1"
-    fn_col = "type2_gated"        if gated else "type2"
-    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    fp_col = "type1_gated"          if gated else "type1"
+    fn_col = "type2_gated"          if gated else "type2"
+    fm_col = "missing_tibu_gated"   if gated else "missing_tibu"
+    tt_col = "tibu_transfer_gated"  if gated else "tibu_transfer"
     print(f"\n--- Generating Error by Clinic (Fig 3{suffix}) ---")
 
     clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
@@ -654,7 +659,7 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
         clinic_summary[["clinic_id", "urban", "tibu_patients", "province"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left"
     )
-    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
+    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col] | df[tt_col]).astype(int)
 
     if not gated:
         clinic_n_tibu = main_df.groupby("clinic_id")["scrn"].count().reset_index(name="n_tibu")
@@ -662,12 +667,12 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
             df.groupby("clinic_id_num")
             .agg(n_study=("scrn","count"), mismatch_rate=("mismatch","mean"),
                  type1_rate=(fp_col,"mean"), type2_rate=(fn_col,"mean"),
-                 missing_tibu_rate=(fm_col,"mean"))
+                 missing_tibu_rate=(fm_col,"mean"), false_transfer_rate=(tt_col,"mean"))
             .reset_index()
             .rename(columns={"clinic_id_num": "clinic_id"})
         )
         clinic_stats = clinic_stats.merge(clinic_n_tibu, on="clinic_id", how="left")
-        clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate"]]
+        clinic_stats = clinic_stats[["clinic_id","n_tibu","n_study","mismatch_rate","type1_rate","type2_rate","missing_tibu_rate","false_transfer_rate"]]
         clinic_stats.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic.csv"), index=False)
         filtered = clinic_stats[clinic_stats["n_study"] >= 10].sort_values("mismatch_rate", ascending=False)
         filtered.to_csv(os.path.join(OUTPUT_DIR, "error_rates_by_clinic_n10.csv"), index=False)
@@ -676,54 +681,43 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     median_size = df.drop_duplicates("clinic_id_num")["tibu_patients"].median()
     df["large_clinic"] = (df["tibu_patients"] >= median_size).astype(float)
 
-    df_excl  = df[~df["clinic_id_num"].isin(COVID_CLINICS)].copy()
-    samples  = {"all": df, "excl": df_excl}
-    totals   = {k: len(s) for k, s in samples.items()}
+    N_total = len(df)
 
-    def stats(sub, total_n):
+    def stats(sub):
         n = len(sub)
-        n_pct = n / total_n * 100 if total_n else 0
+        n_pct = n / N_total * 100 if N_total else 0
         fp_n, fn_n, fm_n = int(sub[fp_col].sum()), int(sub[fn_col].sum()), int(sub[fm_col].sum())
+        tt_n = int(sub[tt_col].sum())
         fp_p = sub[fp_col].mean()*100 if n else 0
         fn_p = sub[fn_col].mean()*100 if n else 0
         fm_p = sub[fm_col].mean()*100 if n else 0
-        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p)]
+        tt_p = sub[tt_col].mean()*100 if n else 0
+        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p), (tt_n, tt_p)]
 
     def fmt_panel(pairs):
         return " & ".join(rf"{n:,} & ({p:.1f}\%)" for n, p in pairs)
 
     def row(label, mask_fn):
-        a = stats(mask_fn(samples["all"]),  totals["all"])
-        b = stats(mask_fn(samples["excl"]), totals["excl"])
-        return rf"{label} & {fmt_panel(a)} & {fmt_panel(b)} \\"
+        return rf"{label} & {fmt_panel(stats(mask_fn(df)))} \\"
 
-    # 17 columns: label + 8 (Panel A) + 8 (Panel B). Empty cells for section headers.
-    BLANK_ROW = " & " * 16
+    # 11 columns: label + 5 (N, %) pairs. Empty cells for section headers.
+    BLANK_ROW = " & " * 10
 
     box = r"\ClinicErrBoxGated" if gated else r"\ClinicErrBox"
     L = []
     L.append(rf"\newsavebox{{{box}}}")
     L.append(rf"\savebox{{{box}}}{{\footnotesize{{")
-    L.append(r"\begin{tabular}{l|rr|rr|rr|rr||rr|rr|rr|rr}")
+    L.append(r"\begin{tabular}{l|rr|rr|rr|rr|rr}")
     L.append(r"\hline\hline \\[-8pt]")
-    L.append(
-        r"& \multicolumn{8}{c||}{\textbf{All clinics}}"
-        r" & \multicolumn{8}{c}{\textbf{Excluding clinics 0 and 115}} \\"
-    )
-    L.append(r"\cline{2-9}\cline{10-17} \\[-8pt]")
     L.append(
         r"& \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c||}{Missing in TIBU}"
-        r" & \multicolumn{2}{c|}{}"
-        r" & \multicolumn{2}{c|}{False positive}"
-        r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c}{Missing in TIBU} \\"
+        r" & \multicolumn{2}{c|}{Missing in TIBU}"
+        r" & \multicolumn{2}{c}{False transfer} \\"
     )
     L.append(
-        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%)"
-        r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
+        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
     )
     L.append(r"\hline \\[-8pt]")
 
@@ -739,9 +733,7 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     for label, val in [("Large clinic", 1), ("Small clinic", 0)]:
         L.append(row(rf"\quad {label}", lambda d, v=val: d[d["large_clinic"] == v]))
 
-    a_all  = stats(samples["all"],  totals["all"])
-    a_excl = stats(samples["excl"], totals["excl"])
-    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(a_all)} & {fmt_panel(a_excl)} \\")
+    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(stats(df))} \\")
 
     L.append(r"\hline\hline")
     L.append(r"\end{tabular}}}")
@@ -751,9 +743,7 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     L.append(
         rf"\footnotesize{{\textit{{Note:}} Urban/rural classification is based on clinic records. "
         rf"Large clinics are those with at least {int(median_size):,} patients registered in TIBU (median); "
-        rf"small clinics are those with fewer. The right panel excludes the two clinics with the highest "
-        rf"absolute error counts (clinic IDs 0 and 115; together they contribute most of the COVID-era "
-        rf"missing-in-TIBU spike).}}"
+        rf"small clinics are those with fewer.}}"
     )
     L.append(r"\end{minipage}")
 
@@ -761,6 +751,72 @@ def generate_error_by_clinic(main_df, dqa_df, gated=False):
     with open(out_path, "w") as f:
         f.write("\n".join(L))
     print(f"Saved {out_path}")
+
+
+def generate_culprit_clinics_table(main_df, dqa_df):
+    """
+    Table 3b: the handful of clinics that drive the discrepancies. For each of
+    the outlier clinics, report the rate of every discrepancy type; each clinic's
+    dominant type is shown in bold colour. The point: discrepancies concentrate
+    at a few clinics, and missing-in-TIBU, false transfers, and false positives
+    concentrate at *different*, largely non-overlapping sets of clinics.
+    Saves tblSI_culprit_clinics.tex.
+    """
+    print("\n--- Generating culprit-clinics table (tblSI_culprit_clinics.tex) ---")
+    clinic_summary = pd.read_csv(os.path.join(DEIDENTIFIED_DIR, "clinic_summary_deidentified.csv"))
+    clinic_summary["clinic_id"] = pd.to_numeric(clinic_summary["clinic_id"], errors="coerce")
+    df = _build_error_df(main_df, dqa_df)
+    df["cid"] = pd.to_numeric(df["clinic_id"], errors="coerce")
+    df = df.merge(clinic_summary[["clinic_id", "province"]],
+                  left_on="cid", right_on="clinic_id", how="left")
+
+    CULPRITS   = [0, 115, 162, 50, 482]
+    PROV_ABBR  = {"Rift Valley South": "Rift Valley S.", "Eastern South": "Eastern S."}
+    TYPES = [("type1", "red"), ("type2", "green!60!black"),
+             ("missing_tibu", "blue"), ("tibu_transfer", "orange!85!black")]
+
+    def cells(sub, highlight):
+        # dominant type = highest-rate discrepancy type (only bolded for a real cluster).
+        # Each type is rendered as two cells (N, (%)) to match the other tables.
+        dom = max(TYPES, key=lambda t: sub[t[0]].mean())[0] if len(sub) else None
+        out = []
+        for col, color in TYPES:
+            n = int(sub[col].sum())
+            r = sub[col].mean() * 100 if len(sub) else 0.0
+            n_s, p_s = f"{n}", rf"({r:.1f}\%)"
+            if highlight and col == dom and n >= 3:
+                n_s = rf"\textbf{{\textcolor{{{color}}}{{{n_s}}}}}"
+                p_s = rf"\textbf{{\textcolor{{{color}}}{{{p_s}}}}}"
+            out += [n_s, p_s]
+        return out
+
+    L = []
+    L.append(r"\footnotesize{")
+    L.append(r"\begin{tabular}{ll r|rr|rr|rr|rr}")
+    L.append(r"\hline\hline \\[-8pt]")
+    L.append(r"Clinic & Province & & \multicolumn{2}{c|}{\textcolor{red}{False positive}}"
+             r" & \multicolumn{2}{c|}{\textcolor{green!60!black}{False negative}}"
+             r" & \multicolumn{2}{c|}{\textcolor{blue}{Missing in TIBU}}"
+             r" & \multicolumn{2}{c}{\textcolor{orange!85!black}{False transfer}} \\")
+    L.append(r" & & $N$ & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\")
+    L.append(r"\hline \\[-8pt]")
+    for cid in CULPRITS:
+        sub  = df[df["cid"] == cid]
+        prov = sub["province"].iloc[0]
+        prov = PROV_ABBR.get(prov, prov)
+        L.append(rf"{int(cid)} & {prov} & {len(sub):,} & " + " & ".join(cells(sub, True)) + r" \\")
+    L.append(r"\hline \\[-8pt]")
+    other = df[~df["cid"].isin(CULPRITS)]
+    L.append(rf"\textit{{All other clinics}} & & {len(other):,} & " + " & ".join(cells(other, False)) + r" \\")
+    L.append(rf"\textit{{Study-wide}} & & {len(df):,} & " + " & ".join(cells(df, False)) + r" \\")
+    L.append(r"\hline\hline")
+    L.append(r"\end{tabular}}")
+
+    out_path = os.path.join(OUTPUT_DIR, "tblSI_culprit_clinics.tex")
+    with open(out_path, "w") as f:
+        f.write("\n".join(L))
+    print(f"Saved {out_path}")
+
 
 def generate_clinic_characteristics_table(main_df, dqa_df):
     """
@@ -779,7 +835,7 @@ def generate_clinic_characteristics_table(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left"
     )
-    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+    df["mismatch"] = (df["type1"] | df["type2"] | df["missing_tibu"] | df["tibu_transfer"]).astype(int)
 
     def row_stats(sub):
         n = len(sub)
@@ -847,14 +903,15 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     two COVID-impacted clinics, mirroring the by-clinic table.
     """
     suffix = "_gated" if gated else ""
-    fp_col = "type1_gated"        if gated else "type1"
-    fn_col = "type2_gated"        if gated else "type2"
-    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    fp_col = "type1_gated"          if gated else "type1"
+    fn_col = "type2_gated"          if gated else "type2"
+    fm_col = "missing_tibu_gated"   if gated else "missing_tibu"
+    tt_col = "tibu_transfer_gated"  if gated else "tibu_transfer"
     print(f"\n--- Generating Error by Patient Characteristics (Fig 4{suffix}) ---")
 
     df = _build_error_df(main_df, dqa_df)
     df["clinic_id_num"] = pd.to_numeric(df["clinic_id"], errors="coerce")
-    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col]).astype(int)
+    df["mismatch"] = (df[fp_col] | df[fn_col] | df[fm_col] | df[tt_col]).astype(int)
 
     df["age_group"] = pd.cut(
         pd.to_numeric(df["age_in_years"], errors="coerce"),
@@ -862,53 +919,42 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
         labels=[r"$<$15", "15--34", "35--54", "55+"]
     )
 
-    df_excl = df[~df["clinic_id_num"].isin(COVID_CLINICS)].copy()
-    samples = {"all": df, "excl": df_excl}
-    totals  = {k: len(s) for k, s in samples.items()}
+    N_total = len(df)
 
-    def stats(sub, total_n):
+    def stats(sub):
         n = len(sub)
-        n_pct = n / total_n * 100 if total_n else 0
+        n_pct = n / N_total * 100 if N_total else 0
         fp_n, fn_n, fm_n = int(sub[fp_col].sum()), int(sub[fn_col].sum()), int(sub[fm_col].sum())
+        tt_n = int(sub[tt_col].sum())
         fp_p = sub[fp_col].mean()*100 if n else 0
         fn_p = sub[fn_col].mean()*100 if n else 0
         fm_p = sub[fm_col].mean()*100 if n else 0
-        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p)]
+        tt_p = sub[tt_col].mean()*100 if n else 0
+        return [(n, n_pct), (fp_n, fp_p), (fn_n, fn_p), (fm_n, fm_p), (tt_n, tt_p)]
 
     def fmt_panel(pairs):
         return " & ".join(rf"{n:,} & ({p:.1f}\%)" for n, p in pairs)
 
     def row(label, mask_fn):
-        a = stats(mask_fn(samples["all"]),  totals["all"])
-        b = stats(mask_fn(samples["excl"]), totals["excl"])
-        return rf"{label} & {fmt_panel(a)} & {fmt_panel(b)} \\"
+        return rf"{label} & {fmt_panel(stats(mask_fn(df)))} \\"
 
-    BLANK_ROW = " & " * 16
+    BLANK_ROW = " & " * 10
 
     box = r"\PatientErrBoxGated" if gated else r"\PatientErrBox"
     L = []
     L.append(rf"\newsavebox{{{box}}}")
     L.append(rf"\savebox{{{box}}}{{\footnotesize{{")
-    L.append(r"\begin{tabular}{l|rr|rr|rr|rr||rr|rr|rr|rr}")
+    L.append(r"\begin{tabular}{l|rr|rr|rr|rr|rr}")
     L.append(r"\hline\hline \\[-8pt]")
-    L.append(
-        r"& \multicolumn{8}{c||}{\textbf{All clinics}}"
-        r" & \multicolumn{8}{c}{\textbf{Excluding clinics 0 and 115}} \\"
-    )
-    L.append(r"\cline{2-9}\cline{10-17} \\[-8pt]")
     L.append(
         r"& \multicolumn{2}{c|}{}"
         r" & \multicolumn{2}{c|}{False positive}"
         r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c||}{Missing in TIBU}"
-        r" & \multicolumn{2}{c|}{}"
-        r" & \multicolumn{2}{c|}{False positive}"
-        r" & \multicolumn{2}{c|}{False negative}"
-        r" & \multicolumn{2}{c}{Missing in TIBU} \\"
+        r" & \multicolumn{2}{c|}{Missing in TIBU}"
+        r" & \multicolumn{2}{c}{False transfer} \\"
     )
     L.append(
-        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%)"
-        r" & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
+        r"& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\"
     )
     L.append(r"\hline \\[-8pt]")
 
@@ -928,9 +974,7 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     ]:
         L.append(row(rf"\quad {label}", lambda d, c=col: d[d[c] == 1]))
 
-    a_all  = stats(samples["all"],  totals["all"])
-    a_excl = stats(samples["excl"], totals["excl"])
-    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(a_all)} & {fmt_panel(a_excl)} \\")
+    L.append(rf"\rule{{0pt}}{{14pt}}All & {fmt_panel(stats(df))} \\")
 
     L.append(r"\hline\hline")
     L.append(r"\end{tabular}}}")
@@ -939,10 +983,8 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
     L.append(r"\par\vspace{4pt}\noindent")
     L.append(
         r"\footnotesize{\textit{Note:} Each row shows the count and rate of records "
-        r"matching the row label, and the count and rate of each error type within those records. "
-        r"Rows are not mutually exclusive (e.g.\ a male HIV-positive patient appears in both rows). "
-        r"The right panel excludes clinic IDs 0 and 115 (the two clinics responsible for the "
-        r"COVID-era missing-in-TIBU spike).}"
+        r"matching the row label, and the count and rate of each discrepancy type within those records. "
+        r"Rows are not mutually exclusive (e.g.\ a male HIV-positive patient appears in both rows).}"
     )
     L.append(r"\end{minipage}")
 
@@ -951,19 +993,62 @@ def generate_error_by_patient_characteristics(main_df, dqa_df, gated=False):
         f.write("\n".join(L))
     print(f"Saved {out_file}")
 
+GOOD_OUTCOMES = ["C", "TC"]
+BAD_OUTCOMES  = ["D", "F", "LTFU"]
+
+
+def _dedup_main(main_df):
+    """One row per patient. study2_cleaned.csv carries duplicate scrn rows
+    (~581); every downstream count assumes one record per patient."""
+    return main_df.drop_duplicates(subset="scrn").copy()
+
+
+def _audited_subcounties(main_df, dqa_df):
+    """The audited subcounties, defined empirically as the two subcounties per
+    county with the most patients located in the paper audit. The audit design
+    sampled two subcounties per county (one large, one small); defining them by
+    located-patient count reproduces that 2-per-county structure (14 subcounties)
+    and drops spillover subcounties that contain only a handful of stray
+    cross-coded patients (e.g. county 5 subcounty 57: 15 located of 320)."""
+    main_df = _dedup_main(main_df)
+    matched = set(dqa_df["scrn"]) & set(main_df["scrn"])
+    m = main_df[main_df["scrn"].isin(matched)]
+    counts = (m.groupby(["county_id", "subcounty_id"]).size()
+                .reset_index(name="n"))
+    top2 = (counts.sort_values(["county_id", "n"], ascending=[True, False])
+                  .groupby("county_id").head(2))
+    return set(top2["subcounty_id"])
+
+
+def _selected_sample(main_df, dqa_df):
+    """Stage 1 of the exclusion cascade: all TIBU-registered patients in the
+    audited subcounties (deduped). This is the denominator for the audit — the
+    population from which paper records were sought — replacing the unreliable
+    raw audit-row count."""
+    main_df = _dedup_main(main_df)
+    aud = _audited_subcounties(main_df, dqa_df)
+    return main_df[main_df["subcounty_id"].isin(aud)].copy()
+
+
 def _build_error_df(main_df, dqa_df):
     """
-    Merge TIBU-side study records with the paper-registry audit, classify each
-    record into one of four DQA categories, and attach relevant dates.
+    Build the analyzed audit sample and classify each record.
 
-    Denominator: records for which paper has a classifiable outcome (the ground
-    truth). Records where paper is blank are dropped as uncheckable; transfer-out
-    (TO, which includes the recoded MT4) is dropped as not auditable.
+    Cascade (single source of truth; see write_cascade_macros for the counts):
+      selected  = TIBU patients in the audited subcounties (_selected_sample)
+      located   = selected patients matched to a paper-registry record
+      − exclude uncheckable: paper outcome blank/NC (no ground truth)
+      analyzed  = located, paper records a real outcome (success/failure/transfer)
 
-    Variables:
-      type1        → Type I:  TIBU success, paper failure (digital false positive)
-      type2        → Type II: TIBU failure, paper success (digital false negative)
-      missing_tibu → TIBU blank, paper has outcome        (digital missing)
+    Three-outcome model — success (C/TC), failure (D/F/LTFU), transfer (TO) — with
+    blank/NC as "missing". Transfer-out is a documented ground-truth outcome, so a
+    disagreeing TIBU value is an error, named after what TIBU wrongly recorded:
+      type1         → false positive: TIBU success, paper is failure or transfer
+      type2         → false negative: TIBU failure, paper is success or transfer
+      tibu_transfer → false transfer: TIBU transfer, paper is a real outcome
+      missing_tibu  → missing: TIBU blank/NC, paper has a real outcome
+    (paper=TO thus feeds false positive / false negative / missing by TIBU's value,
+    rather than being excluded.)
 
     Sister variables suffixed `_gated` apply the date-direction sensitivity
     rule: a discordant matched record is reclassified concordant when
@@ -971,28 +1056,39 @@ def _build_error_df(main_df, dqa_df):
     plausibly reflects an interim audit-snapshot state). Records with either
     date missing/unparseable preserve the headline classification.
     """
-    merged = pd.merge(main_df, dqa_df[["scrn", "to_paper", "date_paper"]], on="scrn", how="inner")
+    selected = _selected_sample(main_df, dqa_df)
+    merged = pd.merge(selected, dqa_df[["scrn", "to_paper", "date_paper"]],
+                      on="scrn", how="inner")  # located sample
 
-    # Drop transfer-out (not auditable). MT4 is already recoded to TO on load.
-    merged = merged[merged["treatmentoutcome"] != "TO"].copy()
+    # Three-outcome model: success (C/TC), failure (D/F/LTFU), transfer (TO).
+    # Transfer-out is a documented ground-truth outcome, NOT an exclusion: a TIBU
+    # value that disagrees with a paper TO is an error, classified by what TIBU
+    # wrongly recorded (below). Blank / NC on either side is "missing" (an interim
+    # placeholder, not a medical outcome).
+    def _cat(s):
+        c = pd.Series("M", index=s.index)          # missing: blank / NC / other
+        c[s.isin(GOOD_OUTCOMES)] = "S"             # success
+        c[s.isin(BAD_OUTCOMES)]  = "F"             # failure
+        c[s == "TO"]             = "T"             # transfer-out
+        return c
+    merged["tibu_cat"]  = _cat(merged["treatmentoutcome"].fillna(""))
+    merged["paper_cat"] = _cat(merged["to_paper"].fillna(""))
 
-    # NC ("not completed") is a placeholder/interim code, not a medical outcome,
-    # so we treat it as missing rather than bad — records with TIBU = NC roll
-    # into missing_tibu when paper has a classifiable outcome.
-    bad  = ["D", "F", "LTFU"]
-    good = ["C", "TC"]
-    merged["uo_tibu"] = np.nan
-    merged.loc[merged["treatmentoutcome"].isin(bad),  "uo_tibu"] = 1
-    merged.loc[merged["treatmentoutcome"].isin(good), "uo_tibu"] = 0
-    merged["uo_paper"] = np.nan
-    merged.loc[merged["to_paper"].isin(bad),  "uo_paper"] = 1
-    merged.loc[merged["to_paper"].isin(good), "uo_paper"] = 0
+    # Analyzed sample: paper records a real outcome (success, failure, or
+    # transfer). Paper blank / NC is uncheckable (no ground truth).
+    df = merged[merged["paper_cat"] != "M"].copy()
 
-    # New denominator: paper must be classifiable (ground truth present).
-    df = merged.dropna(subset=["uo_paper"]).copy()
-    df["type1"]  = ((df["uo_tibu"] == 0) & (df["uo_paper"] == 1)).astype(int)  # Type I
-    df["type2"]  = ((df["uo_tibu"] == 1) & (df["uo_paper"] == 0)).astype(int)  # Type II
-    df["missing_tibu"] = df["uo_tibu"].isna().astype(int)                            # TIBU blank
+    # Each error is named after the category TIBU wrongly recorded, relative to
+    # the ground-truth paper category:
+    #   false positive  → TIBU success, paper is something else (failure or transfer)
+    #   false negative  → TIBU failure, paper is something else (success or transfer)
+    #   false transfer  → TIBU transfer, paper is a real outcome (success or failure)
+    #   missing         → TIBU blank/NC, paper has a real outcome
+    df["tibu_to"]       = (df["tibu_cat"] == "T")
+    df["type1"]         = ((df["tibu_cat"] == "S") & (df["paper_cat"] != "S")).astype(int)
+    df["type2"]         = ((df["tibu_cat"] == "F") & (df["paper_cat"] != "F")).astype(int)
+    df["tibu_transfer"] = ((df["tibu_cat"] == "T") & (df["paper_cat"] != "T")).astype(int)
+    df["missing_tibu"]  = ((df["tibu_cat"] == "M") & (df["paper_cat"] != "M")).astype(int)
 
     # Parse TIBU dates; censor absurd values (study timeline is 2018-2021).
     # paper_date is already parsed and censored by clean_dqa_data.
@@ -1013,7 +1109,8 @@ def _build_error_df(main_df, dqa_df):
     )
     df["type1_gated"]        = (df["type1"].astype(bool) & ~flip).astype(int)
     df["type2_gated"]        = (df["type2"].astype(bool) & ~flip).astype(int)
-    df["missing_tibu_gated"] = df["missing_tibu"]
+    df["missing_tibu_gated"] = df["missing_tibu"]                                    # TIBU blank: no date to gate on
+    df["tibu_transfer_gated"] = (df["tibu_transfer"].astype(bool) & ~flip).astype(int)
 
     # outcome_date = TIBU's outcome date when available, else paper-registry
     # outcome date. The fallback matters for false-missing records (TIBU blank),
@@ -1034,6 +1131,93 @@ def _build_error_df(main_df, dqa_df):
     for col in ["age_reg", "age_out"]:
         df.loc[df[col] < 0, col] = pd.NA
     return df
+
+
+def write_cascade_macros(main_df, dqa_df):
+    """
+    Compute every N in the exclusion cascade from the canonical helpers and
+    write them to output/cascade_macros.tex as LaTeX \\newcommand definitions,
+    so the manuscript never hardcodes (and drifts from) these counts again.
+    """
+    print("\n--- Writing exclusion-cascade macros (cascade_macros.tex) ---")
+    md = _dedup_main(main_df)
+    aud = _audited_subcounties(md, dqa_df)
+    sel = md[md["subcounty_id"].isin(aud)]
+    matched = set(dqa_df["scrn"]) & set(md["scrn"])
+
+    merged = pd.merge(sel, dqa_df[["scrn", "to_paper"]], on="scrn", how="inner")
+    n_selected    = len(sel)
+    n_located     = merged["scrn"].nunique()
+    n_not_located = n_selected - n_located
+    # Analyzed = located records whose paper outcome is a real outcome
+    # (success, failure, or transfer-out); paper blank/NC is uncheckable.
+    real          = merged["to_paper"].isin(GOOD_OUTCOMES + BAD_OUTCOMES + ["TO"])
+    n_uncheckable = int((~real).sum())
+    n_analyzed    = int(real.sum())
+
+    edf = _build_error_df(main_df, dqa_df)
+    n_fp   = int(edf["type1"].sum())
+    n_fn   = int(edf["type2"].sum())
+    n_miss = int(edf["missing_tibu"].sum())
+    n_totr = int(edf["tibu_transfer"].sum())
+    # The four discrepancy categories are mutually exclusive and share the
+    # n_analyzed denominator, so their union is every discordant record.
+    n_discrepant = n_fp + n_fn + n_miss + n_totr
+
+    # Binary success(C/TC)-vs-unsuccessful(D/F/LTFU) misclassification rates for
+    # the outcome-correction worked example; transfer-out and missing dropped.
+    _bin  = edf[edf["tibu_cat"].isin(["S", "F"]) & edf["paper_cat"].isin(["S", "F"])]
+    _binS = _bin[_bin["tibu_cat"] == "S"]
+    _binF = _bin[_bin["tibu_cat"] == "F"]
+    t2_bin = int((_binS["paper_cat"] == "F").sum()) / len(_binS)
+    t1_bin = int((_binF["paper_cat"] == "S").sum()) / len(_binF)
+
+    def pct(n):
+        return f"{n / n_analyzed * 100:.1f}" if n_analyzed else "0.0"
+
+    n_all_tibu = len(pd.read_csv(TIBU_DEIDENTIFIED, usecols=[0]))
+    n_partclin = len(md)                     # participating clinics (deduped main_df)
+    n_nonpart  = n_all_tibu - n_partclin     # TIBU not at a participating clinic
+    n_notinaud = n_partclin - n_selected     # participating clinics not in an audited sub-county
+
+    macros = {
+        "NsubcountiesAudited": len(aud),
+        "NallTIBU":            f"{n_all_tibu:,}",
+        "Npartclinics":        f"{n_partclin:,}",
+        "Nnonparticipating":   f"{n_nonpart:,}",
+        "Nnotinaudited":       f"{n_notinaud:,}",
+        "Nselected":     f"{n_selected:,}",
+        "Nlocated":      f"{n_located:,}",
+        "Nnotlocated":   f"{n_not_located:,}",
+        "Nuncheckable":  f"{n_uncheckable:,}",
+        "Nanalyzed":     f"{n_analyzed:,}",
+        "Nfp":           f"{n_fp:,}",
+        "Nfn":           f"{n_fn:,}",
+        "Nmissing":      f"{n_miss:,}",
+        "Ntibutransfer": f"{n_totr:,}",
+        "Ndiscrepant":   f"{n_discrepant:,}",
+        "Ratefp":           pct(n_fp),
+        "Ratefn":           pct(n_fn),
+        "Ratemissing":      pct(n_miss),
+        "Ratetibutransfer": pct(n_totr),
+        "Ratetotal":        pct(n_discrepant),
+        "Rateconcord":      pct(n_analyzed - n_discrepant),
+        "RateSuccToFail":   f"{t2_bin * 100:.1f}",
+        "RateFailToSucc":   f"{t1_bin * 100:.1f}",
+    }
+    lines = ["% Auto-generated by write_cascade_macros() in analysis_dqa.py.",
+             "% Do not edit by hand; edit the generating function instead.",
+             "% Exclusion cascade: selected -> located -> (-paper TO) -> (-uncheckable) -> analyzed."]
+    for k, v in macros.items():
+        lines.append(rf"\newcommand{{\{k}}}{{{v}}}")
+
+    out_file = os.path.join(OUTPUT_DIR, "cascade_macros.tex")
+    with open(out_file, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"Saved {out_file}")
+    for k, v in macros.items():
+        print(f"    \\{k} = {v}")
+    return macros
 
 
 def _smoothed_curve_with_ci(age, y, frac=0.35, n_boot=500, n_eval=60, seed=0):
@@ -1083,6 +1267,7 @@ def generate_error_by_age_figure(main_df, dqa_df):
         ("type1", "red",   "False positive (Type I)"),
         ("type2", "green", "False negative (Type II)"),
         ("missing_tibu","blue",  "Missing in TIBU"),
+        ("tibu_transfer", "darkorange", "False transfer"),
     ]
 
     for col, fname, xlabel in definitions:
@@ -1098,7 +1283,7 @@ def generate_error_by_age_figure(main_df, dqa_df):
             ax.plot(x, mu * 100, color=color, linewidth=1.8, label=label)
             ax.fill_between(x, lo * 100, hi * 100, color=color, alpha=0.15, linewidth=0)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Error rate (%)")
+        ax.set_ylabel("Discrepancy rate (%)")
         ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
         ax.set_ylim(bottom=0)
         # age_out: invert so the x-axis reads calendar-forward (old outcomes on
@@ -1122,16 +1307,18 @@ def generate_error_density_figure(main_df, dqa_df):
     """
     print("\n--- Generating error density figure ---")
     df = _build_error_df(main_df, dqa_df).dropna(subset=["age_out"]).copy()
-    df["cat"] = "No error"
+    df["cat"] = "Concordant"
     df.loc[df["type1"]  == 1, "cat"] = "False positive (Type I)"
     df.loc[df["type2"]  == 1, "cat"] = "False negative (Type II)"
     df.loc[df["missing_tibu"] == 1, "cat"] = "Missing in TIBU"
+    df.loc[df["tibu_transfer"] == 1, "cat"] = "False transfer"
 
     cats = [
-        ("No error",                 "gray"),
+        ("Concordant",                 "gray"),
         ("False positive (Type I)",  "red"),
         ("False negative (Type II)", "green"),
         ("Missing in TIBU",          "blue"),
+        ("False transfer",           "darkorange"),
     ]
     fig, ax = plt.subplots(figsize=(10, 4))
     for cat, color in cats:
@@ -1163,17 +1350,19 @@ def generate_error_over_time_figure(main_df, dqa_df, gated=False):
     registry's outcome date (used for missing-in-TIBU records, where TIBU is blank).
     """
     suffix = "_gated" if gated else ""
-    fp_col = "type1_gated"        if gated else "type1"
-    fn_col = "type2_gated"        if gated else "type2"
-    fm_col = "missing_tibu_gated" if gated else "missing_tibu"
+    fp_col = "type1_gated"          if gated else "type1"
+    fn_col = "type2_gated"          if gated else "type2"
+    fm_col = "missing_tibu_gated"   if gated else "missing_tibu"
+    tt_col = "tibu_transfer_gated"  if gated else "tibu_transfer"
     print(f"\n--- Generating error-over-time figure (smoothed{suffix}) ---")
     df = _build_error_df(main_df, dqa_df).dropna(subset=["outcome_date"]).copy()
     df["t_days"] = df["outcome_date"].map(lambda d: d.toordinal())
 
     series = [
-        (fp_col, "red",   "False positive"),
-        (fn_col, "green", "False negative"),
-        (fm_col, "blue",  "Missing in TIBU"),
+        (fp_col, "red",        "False positive"),
+        (fn_col, "green",      "False negative"),
+        (fm_col, "blue",       "Missing in TIBU"),
+        (tt_col, "darkorange", "False transfer"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1189,7 +1378,7 @@ def generate_error_over_time_figure(main_df, dqa_df, gated=False):
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
     ax.set_xlabel("Outcome date (TIBU if available, else paper)")
-    ax.set_ylabel("Error rate (%)")
+    ax.set_ylabel("Discrepancy rate (%)")
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
     ax.set_ylim(bottom=0)
     ax.legend(framealpha=0.9, handlelength=1.0, labelspacing=0.5)
@@ -1214,9 +1403,10 @@ def generate_error_over_time_paper_figure(main_df, dqa_df):
     df["t_days"] = df["paper_date"].map(lambda d: d.toordinal())
 
     series = [
-        ("type1",        "red",   "False positive"),
-        ("type2",        "green", "False negative"),
-        ("missing_tibu", "blue",  "Missing in TIBU"),
+        ("type1",         "red",        "False positive"),
+        ("type2",         "green",      "False negative"),
+        ("missing_tibu",  "blue",       "Missing in TIBU"),
+        ("tibu_transfer", "darkorange", "False transfer"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1232,7 +1422,7 @@ def generate_error_over_time_paper_figure(main_df, dqa_df):
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
     ax.set_xlabel("Outcome date (paper registry)")
-    ax.set_ylabel("Error rate (%)")
+    ax.set_ylabel("Discrepancy rate (%)")
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
     ax.set_ylim(bottom=0)
     ax.legend(framealpha=0.9, handlelength=1.0, labelspacing=0.5)
@@ -1273,7 +1463,7 @@ def generate_correction_lag_table(main_df, dqa_df):
         (df["type2"]  == 1, "False negative (Type II)", "green!60!black"),
         (df["missing_tibu"] == 1, "Missing in TIBU",           "blue"),
         ((df["type1"] == 0) & (df["type2"] == 0) & (df["missing_tibu"] == 0),
-                                  "No error",                None),
+                                  "Concordant",                None),
     ]
 
     latex_lines = []
@@ -1600,10 +1790,13 @@ def generate_date_field_audit(main_df, dqa_df):
     pair["bucket"] = pd.cut(pair["delta"].abs(), bins=bins, labels=labels, right=True)
 
     # tex_color is a LaTeX color spec; mpl_color is the matplotlib equivalent.
+    no_error = ((pair["type1"]==0) & (pair["type2"]==0)
+                & (pair["missing_tibu"]==0) & (pair["tibu_transfer"]==0))
     categories = [
-        ("No error",       (pair["type1"]==0)&(pair["type2"]==0)&(pair["missing_tibu"]==0), "black",           "black"),
-        ("False positive", (pair["type1"]==1), "red",             "red"),
-        ("False negative", (pair["type2"]==1), "green!60!black",  "darkgreen"),
+        ("Concordant",       no_error,                  "black",           "black"),
+        ("False positive", (pair["type1"]==1),        "red",             "red"),
+        ("False negative", (pair["type2"]==1),        "green!60!black",  "darkgreen"),
+        ("False transfer", (pair["tibu_transfer"]==1),"orange!85!black", "darkorange"),
         # missing_tibu records have no tibu_date, so are absent from this table.
     ]
 
@@ -1641,9 +1834,9 @@ def generate_date_field_audit(main_df, dqa_df):
     latex.append(r"\par\vspace{4pt}\noindent")
     latex.append(
         r"\scriptsize{\textit{Note:} Denominator is records where both the TIBU and paper "
-        r"outcome dates are non-blank and parseable. Missing-in-TIBU records are excluded "
-        r"(TIBU date is blank by construction). ``TIBU earlier'' and ``TIBU later'' together "
-        r"sum to $<$ 100\% because some records agree exactly.}"
+        r"outcome dates are non-blank and parseable. Missing-in-TIBU records cannot appear "
+        r"(TIBU date is blank by construction); their temporal pattern is in Figure~\ref{fig:over_time}. "
+        r"``TIBU earlier'' and ``TIBU later'' together sum to $<$ 100\% because some records agree exactly.}"
     )
     latex.append(r"\end{minipage}")
     out_path = os.path.join(OUTPUT_DIR, "tblSI_date_agree.tex")
@@ -1659,28 +1852,38 @@ def generate_date_field_audit(main_df, dqa_df):
     ax_lo = pd.Timestamp("2018-01-01")
     ax_hi = pd.Timestamp("2022-01-01")
     # Plot no-error as faint grey background so the error points pop on top.
-    ne_mask = (pair["type1"]==0) & (pair["type2"]==0) & (pair["missing_tibu"]==0)
+    ne_mask = ((pair["type1"]==0) & (pair["type2"]==0)
+               & (pair["missing_tibu"]==0) & (pair["tibu_transfer"]==0))
     ne = pair[ne_mask]
     ax.scatter(ne["paper_date"], ne["tibu_date"],
                s=8, alpha=0.18, color="0.55",
-               label=f"No error (N={len(ne)})")
+               label=f"Concordant (N={len(ne)})")
     # Plot errors prominently on top with larger, edged markers.
     for name, mask, mpl_color, marker in [
-        ("False positive", pair["type1"]==1, "#d62728", "o"),
-        ("False negative", pair["type2"]==1, "#2ca02c", "o"),
+        ("False positive", pair["type1"]==1,        "#d62728",     "o"),
+        ("False negative", pair["type2"]==1,        "#2ca02c",     "o"),
+        ("False transfer", pair["tibu_transfer"]==1,"darkorange",  "o"),
     ]:
         sub = pair[mask]
         ax.scatter(sub["paper_date"], sub["tibu_date"],
                    s=55, alpha=0.85, color=mpl_color, marker=marker,
                    edgecolor="black", linewidth=0.4,
                    label=f"{name} (N={len(sub)})", zorder=3)
-    # y=x and year-offset reference lines (diagonals)
+    # Reference diagonals. Two distinct families of parallel structure:
+    #   * treatment-course offset (~6 mo): the colored error bands, from the
+    #     registration-pinning of transfer-out dates.
+    #   * year offset (1--2 yr): the faint grey streaks, from year typos.
     ax.plot([ax_lo, ax_hi], [ax_lo, ax_hi], "--", color="gray", lw=0.8, label="$y = x$")
+    course = pd.Timedelta(days=172)
+    for sgn in (1, -1):
+        ax.plot([ax_lo, ax_hi], [ax_lo + sgn*course, ax_hi + sgn*course],
+                "-.", color="steelblue", lw=0.9, alpha=0.75,
+                label=(r"$y = x \pm$ one treatment course ($\sim$6 mo)" if sgn == 1 else None))
     for yrs in (1, 2, -1):
         off = pd.Timedelta(days=365*yrs)
         ax.plot([ax_lo, ax_hi], [ax_lo + off, ax_hi + off],
                 ":", color="gray", lw=0.5, alpha=0.6,
-                label=("$y = x \\pm $1--2 yr" if yrs == 1 else None))
+                label=(r"$y = x \pm$ 1--2 yr (year typos)" if yrs == 1 else None))
     ax.set_xlim(ax_lo, ax_hi)
     ax.set_ylim(ax_lo, ax_hi)
     ax.set_xlabel("Paper outcome date")
@@ -1709,9 +1912,10 @@ def generate_dqa_sensitivity_table(main_df, dqa_df):
     n_total = len(df)
 
     rows = [
-        ("False positive",   "type1",        "type1_gated",        "red"),
-        ("False negative",   "type2",        "type2_gated",        "green!60!black"),
-        ("Missing in TIBU",  "missing_tibu", "missing_tibu_gated", "blue"),
+        ("False positive",   "type1",         "type1_gated",         "red"),
+        ("False negative",   "type2",         "type2_gated",         "green!60!black"),
+        ("False transfer",   "tibu_transfer", "tibu_transfer_gated", "orange!85!black"),
+        ("Missing in TIBU",  "missing_tibu",  "missing_tibu_gated",  "blue"),
     ]
 
     # Count records the gate could not adjudicate (kept by missing-date default).
@@ -1724,7 +1928,7 @@ def generate_dqa_sensitivity_table(main_df, dqa_df):
     latex.append(r"\begin{tabular}{l|rr|rr}")
     latex.append(r"\hline\hline \\[-8pt]")
     latex.append(r" & \multicolumn{2}{c|}{Headline} & \multicolumn{2}{c}{Date-gated} \\")
-    latex.append(r"Error type & $N$ & Rate & $N$ & Rate \\")
+    latex.append(r"Discrepancy type & $N$ & Rate & $N$ & Rate \\")
     latex.append(r"\hline \\[-8pt]")
     for label, raw_col, gated_col, tex_color in rows:
         n_raw   = int(df[raw_col].sum())
@@ -1761,18 +1965,17 @@ def generate_dqa_sensitivity_table(main_df, dqa_df):
 
 def generate_logistic_regression_table(main_df, dqa_df):
     """
-    Logit of missing-in-TIBU on patient/clinic/record-age covariates with
-    province fixed effects.  Two columns: full sample and excluding the two
-    COVID-impacted clinics (IDs 0 and 115; together they contribute ~43%
-    of missing-in-TIBU events).  Cells report average marginal effects in
+    Logit of two error outcomes---missing-in-TIBU and false transfer---on
+    patient/clinic/record-age covariates with province fixed effects.  Four
+    columns: each outcome x {full sample, excluding the two COVID-impacted
+    clinics (IDs 0 and 115)}.  Cells report average marginal effects in
     percentage points; standard errors are cluster-robust by clinic.
     Saves tblSI_logit_errors.tex.
 
-    Restricting to missing-in-TIBU because (i) it is the only outcome with
-    enough events to support a multivariate model with province FE, and (ii)
-    the false-positive and false-negative rates are too low to identify
-    coefficients (and false positives are dominated by audit-snapshot
-    artifacts; see Section 5).
+    These two outcomes are the only ones with enough events to support a
+    multivariate model with province FE; the false-positive and false-negative
+    rates are too low to identify coefficients (and false positives are
+    dominated by audit-snapshot artifacts; see Section 5).
     """
     import statsmodels.api as sm
     import warnings
@@ -1804,40 +2007,74 @@ def generate_logistic_regression_table(main_df, dqa_df):
     age_var     = ["age_reg_years"]
     base_covars = indiv_vars + clinic_vars + age_var
 
-    cols_needed = ["missing_tibu", "clinic_id_num"] + base_covars + prov_cols
+    cols_needed = ["missing_tibu", "tibu_transfer", "clinic_id_num"] + base_covars + prov_cols
     df_reg = df[cols_needed].dropna()
 
-    COVID_CLINICS = {0.0, 115.0}
-    specs = [
-        ("all",  "All clinics",                df_reg),
-        ("excl", r"Excl.\ 2 COVID clinics",    df_reg[~df_reg["clinic_id_num"].isin(COVID_CLINICS)].copy()),
-    ]
+    # Each outcome's "excl" column drops that outcome's OWN two culprit clinics
+    # (Table 3b): missing-in-TIBU concentrates at 0 & 115, false transfer at
+    # 162 & 50. The point is to test whether each outcome's associations are a
+    # two-clinic artifact, so each is checked against its own dominant clinics.
+    CULPRITS = {"missing_tibu": {0.0, 115.0}, "tibu_transfer": {162.0, 50.0}}
 
-    results = {}
-    for key, _, sample in specs:
-        y = sample["missing_tibu"].astype(float)
-        active_prov = [c for c in prov_cols
-                       if sample[c].nunique() > 1 and y[sample[c] == 1].sum() > 0]
+    def get_sample(outcome, sample_key):
+        if sample_key == "all":
+            return df_reg
+        return df_reg[~df_reg["clinic_id_num"].isin(CULPRITS[outcome])].copy()
+
+    outcomes  = [("missing_tibu", "Missing in TIBU"), ("tibu_transfer", "False transfer")]
+    col_specs = [("missing_tibu", "all"), ("missing_tibu", "excl"),
+                 ("tibu_transfer", "all"), ("tibu_transfer", "excl")]
+
+    def fit(outcome, sample, use_prov_fe=True):
+        y = sample[outcome].astype(float)
+        # Province fixed effects are identified for missing-in-TIBU but not for
+        # the sparser false-transfer outcome (too few events per province: the
+        # cluster-robust covariance degenerates and returns undefined SEs), so
+        # the false-transfer model is fit without them.
+        active_prov = ([c for c in prov_cols
+                        if sample[c].nunique() > 1 and y[sample[c] == 1].sum() > 0]
+                       if use_prov_fe else [])
         covars = base_covars + active_prov
         X = sm.add_constant(sample[covars].astype(float))
+        # Newton is fast and exact for the well-behaved missing-in-TIBU model;
+        # the sparser false-transfer model can fail Newton (singular Hessian) but
+        # converges under BFGS, so fall back to it.
+        res = None
+        for method in ("newton", "bfgs"):
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    cand = sm.Logit(y, X).fit(
+                        disp=0, maxiter=1000, method=method,
+                        cov_type="cluster",
+                        cov_kwds={"groups": sample["clinic_id_num"].values},
+                    )
+                if cand.mle_retvals.get("converged", True):
+                    res = cand
+                    break
+            except np.linalg.LinAlgError:
+                continue
+        if res is None:
+            raise RuntimeError(f"logit for {outcome} failed to converge")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            res = sm.Logit(y, X).fit(
-                disp=0, maxiter=500, method="newton",
-                cov_type="cluster",
-                cov_kwds={"groups": sample["clinic_id_num"].values},
-            )
             margeff = res.get_margeff(at="overall", method="dydx")
-        results[key] = {
+        return {
             "res": res, "margeff": margeff,
             "n": len(sample), "events": int(y.sum()),
             "n_clusters": sample["clinic_id_num"].nunique(),
-            "n_prov_fe": len(active_prov),
+            "n_prov_fe": len(active_prov), "use_prov_fe": use_prov_fe,
         }
-        print(f"  {key}: N={len(sample):,}, events={int(y.sum())}, "
-              f"clusters={sample['clinic_id_num'].nunique()}, "
-              f"converged={res.mle_retvals.get('converged','?')}, "
-              f"pseudo-R2={res.prsquared:.3f}, prov_FE={len(active_prov)}")
+
+    outcome_uses_fe = {"missing_tibu": True, "tibu_transfer": False}
+    results = {}
+    for outcome, sample_key in col_specs:
+        r = fit(outcome, get_sample(outcome, sample_key), use_prov_fe=outcome_uses_fe[outcome])
+        results[(outcome, sample_key)] = r
+        print(f"  {outcome}/{sample_key}: N={r['n']:,}, events={r['events']}, "
+              f"clusters={r['n_clusters']}, "
+              f"converged={r['res'].mle_retvals.get('converged','?')}, "
+              f"pseudo-R2={r['res'].prsquared:.3f}, prov_FE={r['n_prov_fe']}")
 
     def stars(pval):
         if pval < 0.001: return r"$^{***}$"
@@ -1845,9 +2082,9 @@ def generate_logistic_regression_table(main_df, dqa_df):
         if pval < 0.05:  return r"$^{*}$"
         return ""
 
-    def coef_pair(spec_key, var):
+    def coef_pair(col_key, var):
         """Return (coefficient cell, SE cell) — both as LaTeX strings."""
-        spec = results[spec_key]
+        spec = results[col_key]
         names = [n for n in spec["res"].model.exog_names if n != "const"]
         try:
             i = names.index(var)
@@ -1872,9 +2109,11 @@ def generate_logistic_regression_table(main_df, dqa_df):
     ]
 
     latex = []
-    latex.append(r"\begin{tabular}{l c c}")
+    latex.append(r"\begin{tabular}{l c c c c}")
     latex.append(r"\toprule")
-    latex.append(r" & All clinics & Excluding clinics 0 and 115 \\")
+    latex.append(r" & \multicolumn{2}{c}{Missing in TIBU} & \multicolumn{2}{c}{False transfer} \\")
+    latex.append(r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}")
+    latex.append(r" & All & Excl.\ 0,\,115 & All & Excl.\ 162,\,50 \\")
     latex.append(r"\midrule")
 
     current_group = None
@@ -1882,40 +2121,39 @@ def generate_logistic_regression_table(main_df, dqa_df):
         if group_hdr and group_hdr != current_group:
             if current_group is not None:
                 latex.append(r"\addlinespace[2pt]")
-            latex.append(rf"{group_hdr} & & \\")
+            latex.append(rf"{group_hdr} & & & & \\")
             current_group = group_hdr
-        c1, se1 = coef_pair("all",  var)
-        c2, se2 = coef_pair("excl", var)
-        latex.append(rf"\quad {label} & {c1} & {c2} \\")
-        latex.append(rf"           & {se1} & {se2} \\")
+        coefs = [coef_pair(k, var) for k in col_specs]
+        latex.append(rf"\quad {label} & " + " & ".join(c for c, _ in coefs) + r" \\")
+        latex.append(r"           & "     + " & ".join(se for _, se in coefs) + r" \\")
         latex.append(r"\addlinespace[3pt]")
 
     latex.append(r"\midrule")
-    n_all,  n_excl  = results["all"]["n"],         results["excl"]["n"]
-    e_all,  e_excl  = results["all"]["events"],    results["excl"]["events"]
-    c_all,  c_excl  = results["all"]["n_clusters"],results["excl"]["n_clusters"]
-    r2_all, r2_excl = results["all"]["res"].prsquared, results["excl"]["res"].prsquared
-    latex.append(rf"Province fixed effects   & Yes & Yes \\")
-    latex.append(rf"$N$                      & {n_all:,} & {n_excl:,} \\")
-    latex.append(rf"Missing-in-TIBU events   & {e_all} & {e_excl} \\")
-    latex.append(rf"Clinics                  & {c_all} & {c_excl} \\")
-    latex.append(rf"McFadden's $R^2$         & {r2_all:.3f} & {r2_excl:.3f} \\")
+    latex.append(r"Province fixed effects & " +
+                 " & ".join("Yes" if results[k]["use_prov_fe"] else "No" for k in col_specs) + r" \\")
+    latex.append(r"$N$ & "     + " & ".join(f"{results[k]['n']:,}"           for k in col_specs) + r" \\")
+    latex.append(r"Events & "  + " & ".join(f"{results[k]['events']}"        for k in col_specs) + r" \\")
+    latex.append(r"Clinics & " + " & ".join(f"{results[k]['n_clusters']}"    for k in col_specs) + r" \\")
+    latex.append(r"McFadden's $R^2$ & " + " & ".join(f"{results[k]['res'].prsquared:.3f}" for k in col_specs) + r" \\")
     latex.append(r"\bottomrule")
     latex.append(r"\addlinespace[3pt]")
     latex.append(
-        r"\multicolumn{3}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability} \\"
+        r"\multicolumn{5}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability of the} \\"
     )
     latex.append(
-        r"\multicolumn{3}{l}{\footnotesize of missing-in-TIBU, in percentage points; cluster-robust standard errors} \\"
+        r"\multicolumn{5}{l}{\footnotesize column outcome, in percentage points; cluster-robust standard errors (by clinic),} \\"
     )
     latex.append(
-        r"\multicolumn{3}{l}{\footnotesize (by clinic), propagated to the AME via the delta method, are in parentheses} \\"
+        r"\multicolumn{5}{l}{\footnotesize propagated to the AME via the delta method, are in parentheses below each estimate.} \\"
     )
     latex.append(
-        r"\multicolumn{3}{l}{\footnotesize below each estimate. Province fixed effects included but not displayed.} \\"
+        r"\multicolumn{5}{l}{\footnotesize Province fixed effects (included but not displayed) are identified for missing-in-TIBU but} \\"
     )
     latex.append(
-        r"\multicolumn{3}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\"
+        r"\multicolumn{5}{l}{\footnotesize omitted for the sparser false-transfer outcome. Each ``Excl.'' column drops that outcome's two dominant clinics.} \\"
+    )
+    latex.append(
+        r"\multicolumn{5}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\"
     )
     latex.append(r"\end{tabular}")
 
@@ -1958,14 +2196,15 @@ def generate_clinic_error_vs_outcome_figure(main_df, dqa_df):
         clinic_summary[["clinic_id", "urban", "province"]],
         left_on="clinic_id_num", right_on="clinic_id", how="left",
     )
-    df["any_error"] = (df["type1"] | df["type2"] | df["missing_tibu"]).astype(int)
+    df["any_error"] = (df["type1"] | df["type2"] | df["missing_tibu"] | df["tibu_transfer"]).astype(int)
+    df["unsuccessful"] = df["to_paper"].isin(BAD_OUTCOMES).astype(int)  # paper failure (D/F/LTFU)
 
     clinic_df = (
         df.groupby("clinic_id_num")
         .agg(
             n=("scrn", "count"),
             error_rate=("any_error", "mean"),
-            unsuccessful_rate=("uo_paper", "mean"),
+            unsuccessful_rate=("unsuccessful", "mean"),
             urban=("urban", "first"),
             province=("province", "first"),
         )
@@ -2029,7 +2268,7 @@ def generate_clinic_error_vs_outcome_figure(main_df, dqa_df):
     ax.legend(handles=style_handles, loc="upper right", fontsize=9, framealpha=0.85)
 
     ax.set_xlabel("Unsuccessful outcome rate, paper registry (D, F, or LTFU; %)", fontsize=11)
-    ax.set_ylabel("Overall DQA error rate (%)", fontsize=11)
+    ax.set_ylabel("Overall DQA discrepancy rate (%)", fontsize=11)
     ax.set_title(
         "Clinic-level data quality vs. treatment outcomes\n"
         "(x = urban, o = rural; colour = province; error = Type I + II + Missing in TIBU)",
@@ -2047,6 +2286,186 @@ def generate_clinic_error_vs_outcome_figure(main_df, dqa_df):
     print(f"Saved {out_path}")
 
 
+def _audit_confusion(edf):
+    """Audit TIBU->paper transition rows (S,F,T,M -> S,F,T) as count arrays."""
+    import numpy as np
+    cats = ["S", "F", "T"]
+    return {r: np.array([int(((edf["tibu_cat"] == r) & (edf["paper_cat"] == c)).sum())
+                         for c in cats], float) for r in ["S", "F", "T", "M"]}
+
+
+def generate_confusion_matrix_figure(main_df, dqa_df):
+    """Heatmap of the audit's TIBU->paper outcome confusion matrix for the
+    Appendix worked example; cells annotated with count and row share."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    M = _audit_confusion(_build_error_df(main_df, dqa_df))
+    tib = ["S", "F", "T", "M"]
+    ylab = {"S": "Success", "F": "Failure", "T": "Transfer", "M": "Missing/blank"}
+    Cnt = np.array([M[r] for r in tib])
+    frac = Cnt / Cnt.sum(1, keepdims=True)
+    fig, ax = plt.subplots(figsize=(4.7, 4.3))
+    ax.imshow(frac, cmap="Blues", vmin=0, vmax=1, aspect="auto")
+    ax.set_xticks(range(3)); ax.set_xticklabels(["Success", "Failure", "Transfer"])
+    ax.set_yticks(range(4)); ax.set_yticklabels([ylab[r] for r in tib])
+    ax.set_xlabel("Paper register (ground truth)")
+    ax.set_ylabel("TIBU record")
+    for i in range(4):
+        for j in range(3):
+            ax.text(j, i, f"{int(Cnt[i, j])}\n{frac[i, j]*100:.0f}%",
+                    ha="center", va="center", fontsize=9,
+                    color="white" if frac[i, j] > 0.5 else "black")
+    ax.set_title("Audit: TIBU vs. paper outcomes (cell: count, row share)", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUTPUT_DIR, "fig_confusion_matrix.pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print("Saved fig_confusion_matrix.pdf")
+
+
+def generate_literature_correction(main_df, dqa_df):
+    """
+    Appendix table: correct the reported unsuccessful-outcome share of prior
+    TIBU-based studies for false positives, false negatives, and false transfers
+    via a confusion-matrix reclassification, at the audit rates and at 2x. For
+    Keheala and Kosgei, also the focal across-group difference (bootstrap 95%
+    CIs). Writes output/tblSI_literature_correction.tex.
+
+    Reclassify each study's (success, failure, transfer) counts by the audit's
+    TIBU->paper transition matrix, then unsuccessful share = true-failure /
+    (true-success + true-failure). Kosgei is a cured-vs-died cohort with no
+    transfers, so only the fp/fn (2x2) reclassification applies. Study counts are
+    transcribed from each paper's reported outcome table.
+    """
+    import numpy as np
+    rng = np.random.default_rng(0)
+    cats = ["S", "F", "T"]
+    M = _audit_confusion(_build_error_df(main_df, dqa_df))
+    P = {r: M[r] / M[r].sum() for r in M}
+
+    def scaled(r, s):
+        if r == "M":
+            return P[r]
+        d = cats.index(r); off = P[r].copy(); off[d] = 0.0
+        nw = off * s; nw[d] = 1 - nw.sum(); return nw
+
+    def rec3(nS, nF, nT, s=1.0):
+        t = nS*scaled("S", s) + nF*scaled("F", s) + nT*scaled("T", s)
+        return t[1] / (t[0] + t[1])
+
+    def rec3m(nS, nF, nT, nM, s=1.0):        # includes false-missing reallocation
+        t = nS*scaled("S", s) + nF*scaled("F", s) + nT*scaled("T", s) + nM*P["M"]
+        return t[1] / (t[0] + t[1])
+
+    Pb = {"S": M["S"][:2] / M["S"][:2].sum(), "F": M["F"][:2] / M["F"][:2].sum()}
+
+    def scaledb(r, s):
+        d = 0 if r == "S" else 1; off = Pb[r].copy(); off[d] = 0.0
+        nw = off * s; nw[d] = 1 - nw.sum(); return nw
+
+    def rec2(nS, nF, s=1.0):
+        t = nS*scaledb("S", s) + nF*scaledb("F", s)
+        return t[1] / (t[0] + t[1])
+
+    def rep(nS, nF, *rest, s=1.0):           # raw reported share
+        return nF / (nS + nF)
+
+    # Keheala study-clinic sample + arms.
+    m = _dedup_main(main_df.copy())
+    oc = m["treatmentoutcome"].fillna(""); g = m["treatment_group_str"]
+    def counts(mask):
+        o = oc[mask]
+        return (int(o.isin(GOOD_OUTCOMES).sum()), int(o.isin(BAD_OUTCOMES).sum()),
+                int((o == "TO").sum()))
+    kS, kF, kT = counts(oc == oc)
+    kM = int((~oc.isin(GOOD_OUTCOMES + BAD_OUTCOMES + ["TO"])).sum())
+    kh, ctl = counts(g == "Keheala Group"), counts(g == "Control Group")
+
+    def diff_ci(gA, gB, fn, s, B=3000):
+        NA = int(sum(gA)); pA = np.array(gA, float) / NA
+        NB = int(sum(gB)); pB = np.array(gB, float) / NB
+        v = [fn(*rng.multinomial(NA, pA), s=s) - fn(*rng.multinomial(NB, pB), s=s)
+             for _ in range(B)]
+        return np.percentile(v, 2.5) * 100, np.percentile(v, 97.5) * 100
+
+    def dcell(gA, gB, fn, s):
+        pt = (fn(*gA, s=s) - fn(*gB, s=s)) * 100
+        lo, hi = diff_ci(gA, gB, fn, s)
+        return f"${pt:+.2f}$ (${lo:+.2f}$, ${hi:+.2f}$)"
+
+    def diff_cells(kind):
+        if kind == "arm":
+            gA, gB, fn = kh, ctl, rec3
+        elif kind == "sex":
+            gA, gB, fn = (4166, 401), (3988, 471), rec2   # women, men (cured, died)
+        else:
+            return ["---", "---", "---"]
+        return [dcell(gA, gB, rep, 1), dcell(gA, gB, fn, 1), dcell(gA, gB, fn, 2)]
+
+    def boot_overall(nS, nF, nT, binary, B=3000):
+        if binary:
+            N = nS + nF; p = np.array([nS, nF], float) / N
+            reps, c1s, c2s = [], [], []
+            for _ in range(B):
+                a, b = rng.multinomial(N, p)
+                reps.append(b / (a + b)); c1s.append(rec2(a, b, 1)); c2s.append(rec2(a, b, 2))
+        else:
+            N = nS + nF + nT; p = np.array([nS, nF, nT], float) / N
+            reps, c1s, c2s = [], [], []
+            for _ in range(B):
+                a, b, c = rng.multinomial(N, p)
+                reps.append(b / (a + b)); c1s.append(rec3(a, b, c, 1)); c2s.append(rec3(a, b, c, 2))
+        pc = lambda v: (np.percentile(v, 2.5), np.percentile(v, 97.5))
+        return pc(reps), pc(c1s), pc(c2s)
+
+    def ocell(pt, lohi):
+        return f"{pt*100:.2f} ({lohi[0]*100:.2f}, {lohi[1]*100:.2f})"
+
+    # (label, S, F, T, binary?)
+    def studlab(key, mark=""):
+        return rf"\citeauthor{{{key}}} \citeyear{{{key}}}\cite{{{key}}}{mark}"
+    rows = [
+        (r"Keheala\cite{yoeli2026digital}",              kS, kF, kT,      False),
+        (studlab("ngari2025mortality"),                  32194, 4669, 830, False),
+        (studlab("ngari2023burden"),                     22994, 3509, 763, False),
+        (studlab("katana2022kilifi", r"$^{\dagger}$"),   12298, 1953, 415, False),
+        (studlab("kosgei2020gender", r"$^{\ddagger}$"),  8154, 872, 0,     True),
+    ]
+
+    out = [
+        r"\textbf{Panel A. Overall unsuccessful-outcome rate (\%)}\\[3pt]",
+        r"\begin{tabular}{l r ccc}",
+        r"\hline\hline \\[-8pt]",
+        r" & $N$ & Reported & Corrected & $2\times$ \\",
+        r"\hline \\[-8pt]",
+    ]
+    for label, nS, nF, nT, binary in rows:
+        rp = nF / (nS + nF)
+        c1 = rec2(nS, nF, 1) if binary else rec3(nS, nF, nT, 1)
+        c2 = rec2(nS, nF, 2) if binary else rec3(nS, nF, nT, 2)
+        cir, ci1, ci2 = boot_overall(nS, nF, nT, binary)
+        out.append(f"{label} & {nS + nF:,} & {ocell(rp, cir)} & {ocell(c1, ci1)} & {ocell(c2, ci2)} \\\\")
+    out += [r"\hline\hline", r"\end{tabular}", "", r"\vspace{10pt}", ""]
+
+    out += [
+        r"\textbf{Panel B. Focal across-group difference (pp)}\\[3pt]",
+        r"\begin{tabular}{l ccc}",
+        r"\hline\hline \\[-8pt]",
+        r" & Reported & Corrected & $2\times$ \\",
+        r"\hline \\[-8pt]",
+    ]
+    for lbl, kind in [(r"Keheala vs.\ control arm\cite{yoeli2026digital}", "arm"),
+                      (r"Women vs.\ men\cite{kosgei2020gender}$^{\ddagger}$", "sex")]:
+        d = diff_cells(kind)
+        out.append(f"{lbl} & {d[0]} & {d[1]} & {d[2]} \\\\")
+    out += [r"\hline\hline", r"\end{tabular}"]
+
+    path = os.path.join(OUTPUT_DIR, "tblSI_literature_correction.tex")
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+    kh_full = rec3m(kS, kF, kT, kM, 1) * 100
+    print(f"Saved {path}  (Keheala +missing corr1x = {kh_full:.2f}%)")
+
+
 def main():
     print("Starting Consolidated DQA Analysis...")
 
@@ -2054,6 +2473,9 @@ def main():
     dqa_df_cleaned = clean_dqa_data()
     if main_df is None or dqa_df_cleaned is None:
         return
+
+    # Exclusion-cascade counts as LaTeX macros (single source of truth)
+    write_cascade_macros(main_df, dqa_df_cleaned)
 
     # Patient-characteristics tables (Tables 1a/1b)
     generate_patient_characteristics_table(main_df, dqa_df_cleaned)
@@ -2081,6 +2503,7 @@ def main():
     # DQA crosstab and error-rate tables (Tables 2, 3, 4)
     generate_crosstab_table(main_df, dqa_df_cleaned)
     generate_error_by_clinic(main_df, dqa_df_cleaned)
+    generate_culprit_clinics_table(main_df, dqa_df_cleaned)
     generate_error_by_patient_characteristics(main_df, dqa_df_cleaned)
 
     # Supplementary summaries (CSVs and a non-included table)
@@ -2100,6 +2523,8 @@ def main():
     # Section 5 — date-field audit and date-gated sensitivity table
     generate_date_field_audit(main_df, dqa_df_cleaned)
     generate_dqa_sensitivity_table(main_df, dqa_df_cleaned)
+    generate_confusion_matrix_figure(main_df, dqa_df_cleaned)
+    generate_literature_correction(main_df, dqa_df_cleaned)
 
     # Appendix — recreated tables/figure under the date-gated definition
     generate_error_by_clinic(main_df, dqa_df_cleaned, gated=True)

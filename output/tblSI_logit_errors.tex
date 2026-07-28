@@ -1,50 +1,53 @@
-\begin{tabular}{l c c}
+\begin{tabular}{l c c c c}
 \toprule
- & All clinics & Excluding clinics 0 and 115 \\
+ & \multicolumn{2}{c}{Missing in TIBU} & \multicolumn{2}{c}{False transfer} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & All & Excl.\ 0,\,115 & All & Excl.\ 162,\,50 \\
 \midrule
-\textit{Individual characteristics} & & \\
-\quad Male & +2.64 & -0.25 \\
-           & (1.80) & (0.54) \\
+\textit{Individual characteristics} & & & & \\
+\quad Male & +2.79 & -0.21 & +2.17$^{**}$ & +1.85 \\
+           & (1.91) & (0.51) & (0.72) & (1.02) \\
 \addlinespace[3pt]
-\quad Age (years) & -0.01 & -0.00 \\
-           & (0.02) & (0.02) \\
+\quad Age (years) & -0.00 & -0.00 & -0.04 & -0.00 \\
+           & (0.02) & (0.01) & (0.02) & (0.01) \\
 \addlinespace[3pt]
-\quad HIV positive & +0.24 & +0.11 \\
-           & (0.71) & (0.30) \\
+\quad HIV positive & +0.17 & +0.03 & -1.15 & -1.91$^{***}$ \\
+           & (0.62) & (0.31) & (1.39) & (0.56) \\
 \addlinespace[3pt]
-\quad Extrapulmonary TB & +1.50 & +0.95 \\
-           & (0.89) & (0.68) \\
+\quad Extrapulmonary TB & +1.01 & +0.82 & +0.82 & -0.54 \\
+           & (0.92) & (0.61) & (0.67) & (0.75) \\
 \addlinespace[3pt]
-\quad Retreatment case & -0.01 & -0.05 \\
-           & (0.79) & (0.85) \\
+\quad Retreatment case & +0.09 & +0.07 & -1.46 & +0.17 \\
+           & (0.81) & (0.87) & (2.07) & (0.83) \\
 \addlinespace[3pt]
-\quad Bacteriologically confirmed & +0.90 & +0.79 \\
-           & (0.74) & (0.44) \\
+\quad Bacteriologically confirmed & +0.63 & +0.98$^{*}$ & +0.63 & +0.06 \\
+           & (0.81) & (0.43) & (1.30) & (0.53) \\
 \addlinespace[3pt]
 \addlinespace[2pt]
-\textit{Clinic characteristics} & & \\
-\quad Urban clinic & +1.48 & +1.80 \\
-           & (1.40) & (1.08) \\
+\textit{Clinic characteristics} & & & & \\
+\quad Urban clinic & +1.61 & +1.80 & +0.71 & +0.98 \\
+           & (1.41) & (0.96) & (3.50) & (1.31) \\
 \addlinespace[3pt]
-\quad Clinic size (log patients) & -1.03 & +0.34 \\
-           & (0.69) & (0.45) \\
+\quad Clinic size (log patients) & -1.04 & +0.19 & +1.43$^{**}$ & -1.09 \\
+           & (0.58) & (0.36) & (0.51) & (0.63) \\
 \addlinespace[3pt]
 \addlinespace[2pt]
-\textit{Record characteristics} & & \\
-\quad Record age (years) & -8.38$^{***}$ & -3.55$^{*}$ \\
-           & (2.37) & (1.52) \\
+\textit{Record characteristics} & & & & \\
+\quad Record age (years) & -8.43$^{***}$ & -3.44$^{*}$ & -5.38$^{**}$ & -3.21 \\
+           & (2.35) & (1.55) & (2.04) & (1.74) \\
 \addlinespace[3pt]
 \midrule
-Province fixed effects   & Yes & Yes \\
-$N$                      & 2,821 & 2,473 \\
-Missing-in-TIBU events   & 73 & 25 \\
-Clinics                  & 54 & 52 \\
-McFadden's $R^2$         & 0.396 & 0.250 \\
+Province fixed effects & Yes & Yes & No & No \\
+$N$ & 3,180 & 2,776 & 3,180 & 2,771 \\
+Events & 86 & 28 & 130 & 44 \\
+Clinics & 53 & 51 & 53 & 51 \\
+McFadden's $R^2$ & 0.399 & 0.240 & 0.155 & 0.140 \\
 \bottomrule
 \addlinespace[3pt]
-\multicolumn{3}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability} \\
-\multicolumn{3}{l}{\footnotesize of missing-in-TIBU, in percentage points; cluster-robust standard errors} \\
-\multicolumn{3}{l}{\footnotesize (by clinic), propagated to the AME via the delta method, are in parentheses} \\
-\multicolumn{3}{l}{\footnotesize below each estimate. Province fixed effects included but not displayed.} \\
-\multicolumn{3}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\
+\multicolumn{5}{l}{\footnotesize \textit{Notes:} Cells report the average marginal effect on the probability of the} \\
+\multicolumn{5}{l}{\footnotesize column outcome, in percentage points; cluster-robust standard errors (by clinic),} \\
+\multicolumn{5}{l}{\footnotesize propagated to the AME via the delta method, are in parentheses below each estimate.} \\
+\multicolumn{5}{l}{\footnotesize Province fixed effects (included but not displayed) are identified for missing-in-TIBU but} \\
+\multicolumn{5}{l}{\footnotesize omitted for the sparser false-transfer outcome. Each ``Excl.'' column drops that outcome's two dominant clinics.} \\
+\multicolumn{5}{l}{\footnotesize $^{***}p<0.001$,\ $^{**}p<0.01$,\ $^{*}p<0.05$.} \\
 \end{tabular}

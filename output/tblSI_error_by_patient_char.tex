@@ -1,29 +1,27 @@
 \newsavebox{\PatientErrBox}
 \savebox{\PatientErrBox}{\footnotesize{
-\begin{tabular}{l|rr|rr|rr|rr||rr|rr|rr|rr}
+\begin{tabular}{l|rr|rr|rr|rr|rr}
 \hline\hline \\[-8pt]
-& \multicolumn{8}{c||}{\textbf{All clinics}} & \multicolumn{8}{c}{\textbf{Excluding clinics 0 and 115}} \\
-\cline{2-9}\cline{10-17} \\[-8pt]
-& \multicolumn{2}{c|}{} & \multicolumn{2}{c|}{False positive} & \multicolumn{2}{c|}{False negative} & \multicolumn{2}{c||}{Missing in TIBU} & \multicolumn{2}{c|}{} & \multicolumn{2}{c|}{False positive} & \multicolumn{2}{c|}{False negative} & \multicolumn{2}{c}{Missing in TIBU} \\
-& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\
+& \multicolumn{2}{c|}{} & \multicolumn{2}{c|}{False positive} & \multicolumn{2}{c|}{False negative} & \multicolumn{2}{c|}{Missing in TIBU} & \multicolumn{2}{c}{False transfer} \\
+& $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) & $N$ & (\%) \\
 \hline \\[-8pt]
-\textit{Individual characteristics} &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  & \\
-\quad Male & 1,872 & (63.4\%) & 19 & (1.0\%) & 14 & (0.7\%) & 68 & (3.6\%) & 1,637 & (63.0\%) & 18 & (1.1\%) & 14 & (0.9\%) & 20 & (1.2\%) \\
-\rule{0pt}{14pt}\textit{Age group} &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  & \\
-\quad $<$15 & 420 & (14.2\%) & 1 & (0.2\%) & 3 & (0.7\%) & 5 & (1.2\%) & 366 & (14.1\%) & 1 & (0.3\%) & 3 & (0.8\%) & 3 & (0.8\%) \\
-\quad 15--34 & 1,334 & (45.2\%) & 18 & (1.3\%) & 11 & (0.8\%) & 35 & (2.6\%) & 1,170 & (45.0\%) & 17 & (1.5\%) & 11 & (0.9\%) & 11 & (0.9\%) \\
-\quad 35--54 & 866 & (29.3\%) & 6 & (0.7\%) & 5 & (0.6\%) & 29 & (3.3\%) & 755 & (29.0\%) & 6 & (0.8\%) & 5 & (0.7\%) & 11 & (1.5\%) \\
-\quad 55+ & 297 & (10.1\%) & 6 & (2.0\%) & 2 & (0.7\%) & 8 & (2.7\%) & 273 & (10.5\%) & 6 & (2.2\%) & 2 & (0.7\%) & 3 & (1.1\%) \\
-\rule{0pt}{14pt}\textit{Disease characteristics} &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  & \\
-\quad Bacteriologically confirmed & 2,041 & (69.1\%) & 25 & (1.2\%) & 14 & (0.7\%) & 61 & (3.0\%) & 1,788 & (68.8\%) & 24 & (1.3\%) & 14 & (0.8\%) & 24 & (1.3\%) \\
-\quad Extrapulmonary & 331 & (11.2\%) & 2 & (0.6\%) & 0 & (0.0\%) & 8 & (2.4\%) & 302 & (11.6\%) & 2 & (0.7\%) & 0 & (0.0\%) & 5 & (1.7\%) \\
-\quad Retreatment & 275 & (9.3\%) & 5 & (1.8\%) & 1 & (0.4\%) & 5 & (1.8\%) & 250 & (9.6\%) & 5 & (2.0\%) & 1 & (0.4\%) & 2 & (0.8\%) \\
-\quad HIV positive & 667 & (22.6\%) & 6 & (0.9\%) & 8 & (1.2\%) & 20 & (3.0\%) & 577 & (22.2\%) & 5 & (0.9\%) & 8 & (1.4\%) & 9 & (1.6\%) \\
-\rule{0pt}{14pt}All & 2,953 & (100.0\%) & 31 & (1.0\%) & 21 & (0.7\%) & 112 & (3.8\%) & 2,599 & (100.0\%) & 30 & (1.2\%) & 21 & (0.8\%) & 62 & (2.4\%) \\
+\textit{Individual characteristics} &  &  &  &  &  &  &  &  &  & \\
+\quad Male & 2,115 & (64.0\%) & 76 & (3.6\%) & 18 & (0.9\%) & 81 & (3.8\%) & 103 & (4.9\%) \\
+\rule{0pt}{14pt}\textit{Age group} &  &  &  &  &  &  &  &  &  & \\
+\quad $<$15 & 458 & (13.9\%) & 13 & (2.8\%) & 3 & (0.7\%) & 7 & (1.5\%) & 13 & (2.8\%) \\
+\quad 15--34 & 1,528 & (46.2\%) & 69 & (4.5\%) & 15 & (1.0\%) & 43 & (2.8\%) & 67 & (4.4\%) \\
+\quad 35--54 & 965 & (29.2\%) & 32 & (3.3\%) & 10 & (1.0\%) & 32 & (3.3\%) & 44 & (4.6\%) \\
+\quad 55+ & 331 & (10.0\%) & 20 & (6.0\%) & 2 & (0.6\%) & 9 & (2.7\%) & 8 & (2.4\%) \\
+\rule{0pt}{14pt}\textit{Disease characteristics} &  &  &  &  &  &  &  &  &  & \\
+\quad Bacteriologically confirmed & 2,326 & (70.4\%) & 104 & (4.5\%) & 20 & (0.9\%) & 71 & (3.1\%) & 105 & (4.5\%) \\
+\quad Extrapulmonary & 367 & (11.1\%) & 11 & (3.0\%) & 3 & (0.8\%) & 9 & (2.5\%) & 16 & (4.4\%) \\
+\quad Retreatment & 298 & (9.0\%) & 16 & (5.4\%) & 2 & (0.7\%) & 5 & (1.7\%) & 6 & (2.0\%) \\
+\quad HIV positive & 729 & (22.1\%) & 28 & (3.8\%) & 14 & (1.9\%) & 21 & (2.9\%) & 21 & (2.9\%) \\
+\rule{0pt}{14pt}All & 3,306 & (100.0\%) & 134 & (4.1\%) & 30 & (0.9\%) & 114 & (3.4\%) & 132 & (4.0\%) \\
 \hline\hline
 \end{tabular}}}
 \begin{minipage}{\wd\PatientErrBox}
 \usebox{\PatientErrBox}
 \par\vspace{4pt}\noindent
-\footnotesize{\textit{Note:} Each row shows the count and rate of records matching the row label, and the count and rate of each error type within those records. Rows are not mutually exclusive (e.g.\ a male HIV-positive patient appears in both rows). The right panel excludes clinic IDs 0 and 115 (the two clinics responsible for the COVID-era missing-in-TIBU spike).}
+\footnotesize{\textit{Note:} Each row shows the count and rate of records matching the row label, and the count and rate of each discrepancy type within those records. Rows are not mutually exclusive (e.g.\ a male HIV-positive patient appears in both rows).}
 \end{minipage}
