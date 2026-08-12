@@ -1,0 +1,6 @@
+#!/bin/sh
+# Strips the "Claude-Session: ..." trailer line that Claude Code appends to
+# commit messages, while leaving the "Co-Authored-By: Claude ..." line intact.
+MSG_FILE="$1"
+sed -i.bak '/^Claude-Session:/d' "$MSG_FILE"
+rm -f "$MSG_FILE.bak"
