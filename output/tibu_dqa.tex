@@ -37,10 +37,6 @@
 % --- Bibliography ---
 \usepackage[numbers,super,sort&compress]{natbib}
 
-% --- Diagrams (CONSORT-style exclusion cascade) ---
-\usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}
-
 % --- Hyperlinks ---
 \usepackage[hypertexnames=false]{hyperref}
 \hypersetup{
@@ -83,32 +79,7 @@ The study team searched clinics' paper registries for these participants in mult
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[
-  node distance = 11mm and 10mm,
-  box/.style  = {draw, rounded corners, align=center, text width=60mm,
-                 inner sep=5pt, font=\small},
-  excl/.style = {draw, align=left, text width=68mm, inner sep=4pt,
-                 font=\footnotesize},
-  arr/.style  = {-{Latex[length=2.2mm]}, thick},
-]
-\node[box]                 (all) {All patients in TIBU, study period\\[1pt]($N=\NallTIBU$)};
-\node[box, below=of all]   (par) {Patients at participating clinics\\[1pt]($N=\Npartclinics$)};
-\node[box, below=of par]   (sel) {Selected: participants in the $\NsubcountiesAudited$ audited sub-counties\\[1pt]($N=\Nselected$)};
-\node[box, below=of sel]   (loc) {Located in paper registry\\[1pt]($N=\Nlocated$)};
-\node[box, below=of loc]   (ana) {Analyzed sample\\[1pt]($N=\Nanalyzed$)};
-\node[excl, right=of all]  (e0)  {Not at a participating clinic: $N=\Nnonparticipating$};
-\node[excl, right=of par]  (e1)  {Not in an audited sub-county: $N=\Nnotinaudited$};
-\node[excl, right=of sel]  (e2)  {Not found in paper registry: $N=\Nnotlocated$};
-\node[excl, right=of loc]  (e3)  {No classifiable paper outcome (blank/NC): $N=\Nuncheckable$};
-\draw[arr] (all) -- (par);
-\draw[arr] (par) -- (sel);
-\draw[arr] (sel) -- (loc);
-\draw[arr] (loc) -- (ana);
-\draw[arr] (all) -- (e0);
-\draw[arr] (par) -- (e1);
-\draw[arr] (sel) -- (e2);
-\draw[arr] (loc) -- (e3);
-\end{tikzpicture}
+\includegraphics[width=0.92\textwidth]{fig_consort.pdf}
 \caption{Exclusion cascade from all patients registered in TIBU during the study period to the analyzed sample; the box to the right of each step gives the number excluded at that step.}
 \label{fig:consort}
 \end{figure}

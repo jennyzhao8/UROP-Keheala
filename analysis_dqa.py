@@ -1220,6 +1220,78 @@ def write_cascade_macros(main_df, dqa_df):
     return macros
 
 
+def generate_consort_figure(macros):
+    """CONSORT-style exclusion-cascade flowchart, rendered with matplotlib
+    instead of tikz so building the manuscript doesn't require a tikz
+    install. Values come from write_cascade_macros(); call this after it.
+    """
+    import textwrap
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyBboxPatch
+
+    def wrap(s, width):
+        return "\n".join(textwrap.wrap(s, width))
+
+    main_boxes = [
+        wrap(f"All patients in TIBU, study period (N={macros['NallTIBU']})", 30),
+        wrap(f"Patients at participating clinics (N={macros['Npartclinics']})", 30),
+        wrap(f"Selected: participants in the {macros['NsubcountiesAudited']} "
+             f"audited sub-counties (N={macros['Nselected']})", 30),
+        wrap(f"Located in paper registry (N={macros['Nlocated']})", 30),
+        wrap(f"Analyzed sample (N={macros['Nanalyzed']})", 30),
+    ]
+    excl_boxes = [
+        wrap(f"Not at a participating clinic: N={macros['Nnonparticipating']}", 34),
+        wrap(f"Not in an audited sub-county: N={macros['Nnotinaudited']}", 34),
+        wrap(f"Not found in paper registry: N={macros['Nnotlocated']}", 34),
+        wrap(f"No classifiable paper outcome (blank/NC): N={macros['Nuncheckable']}", 34),
+    ]
+
+    box_w, box_h = 3.4, 0.85
+    excl_w, excl_h = 4.2, 0.7
+    main_x, excl_x = 0.2, 4.2
+
+    fig, ax = plt.subplots(figsize=(9.2, 6.6))
+    ax.set_xlim(0, main_x + max(box_w, excl_x + excl_w) + 0.3)
+    ax.set_ylim(-0.5, len(main_boxes) - 0.5)
+    ax.invert_yaxis()
+    ax.axis("off")
+
+    main_centers = []
+    for i, text in enumerate(main_boxes):
+        cx, cy = main_x + box_w / 2, i
+        main_centers.append((cx, cy))
+        ax.add_patch(FancyBboxPatch(
+            (main_x, cy - box_h / 2), box_w, box_h,
+            boxstyle="round,pad=0.02,rounding_size=0.08",
+            linewidth=1.1, edgecolor="black", facecolor="white"))
+        ax.text(cx, cy, text, ha="center", va="center", fontsize=8.5)
+
+    for i, text in enumerate(excl_boxes):
+        cy = i
+        ax.add_patch(FancyBboxPatch(
+            (excl_x, cy - excl_h / 2), excl_w, excl_h,
+            boxstyle="square,pad=0.02",
+            linewidth=0.9, edgecolor="black", facecolor="white"))
+        ax.text(excl_x + 0.15, cy, text, ha="left", va="center", fontsize=7.8)
+
+    for i in range(len(main_boxes) - 1):
+        cx, cy1 = main_centers[i]
+        _, cy2 = main_centers[i + 1]
+        ax.annotate("", xy=(cx, cy2 - box_h / 2), xytext=(cx, cy1 + box_h / 2),
+                    arrowprops=dict(arrowstyle="-|>", lw=1.1, color="black"))
+    for i in range(len(excl_boxes)):
+        cx, cy = main_centers[i]
+        ax.annotate("", xy=(excl_x, cy), xytext=(main_x + box_w, cy),
+                    arrowprops=dict(arrowstyle="-|>", lw=1.0, color="black"))
+
+    fig.tight_layout()
+    out_path = os.path.join(OUTPUT_DIR, "fig_consort.pdf")
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
 def _smoothed_curve_with_ci(age, y, frac=0.35, n_boot=500, n_eval=60, seed=0):
     """Lowess smooth of P(y=1 | age) with percentile bootstrap CI band."""
     from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -2474,8 +2546,11 @@ def main():
     if main_df is None or dqa_df_cleaned is None:
         return
 
-    # Exclusion-cascade counts as LaTeX macros (single source of truth)
-    write_cascade_macros(main_df, dqa_df_cleaned)
+    # Exclusion-cascade counts as LaTeX macros (single source of truth), and
+    # the CONSORT-style flowchart figure that uses them (matplotlib, not
+    # tikz, so the manuscript doesn't need a tikz install to build)
+    _cascade_macros = write_cascade_macros(main_df, dqa_df_cleaned)
+    generate_consort_figure(_cascade_macros)
 
     # Patient-characteristics tables (Tables 1a/1b)
     generate_patient_characteristics_table(main_df, dqa_df_cleaned)
